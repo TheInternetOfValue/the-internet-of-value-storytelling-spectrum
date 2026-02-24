@@ -406,26 +406,36 @@
       {
         "id": "feed",
         "label": "Feed",
+        "description": "Algorithmic stream amplification: highest speed and reach, but more perception distortion.",
+        "color_hex": "#ff7b91",
         "metric_delta": { "fidelity": -4, "persuasion": 6, "reach": 10, "distortion": 7 }
       },
       {
         "id": "search",
         "label": "Search",
+        "description": "Intent-driven discovery: stronger fidelity and lower distortion than feed.",
+        "color_hex": "#6ed6ff",
         "metric_delta": { "fidelity": 4, "persuasion": 1, "reach": 6, "distortion": -2 }
       },
       {
         "id": "direct",
         "label": "Direct",
+        "description": "Direct delivery: clarity and trust are high, scale stays limited.",
+        "color_hex": "#9be59f",
         "metric_delta": { "fidelity": 3, "persuasion": 2, "reach": 1, "distortion": -1 }
       },
       {
         "id": "community",
         "label": "Community",
+        "description": "Community spread: social proof increases persuasion with moderate distortion.",
+        "color_hex": "#b28cff",
         "metric_delta": { "fidelity": 2, "persuasion": 4, "reach": 5, "distortion": 1 }
       },
       {
         "id": "paid",
         "label": "Paid",
+        "description": "Paid amplification: rapid reach and persuasion, with commercial framing bias.",
+        "color_hex": "#ffb56b",
         "metric_delta": { "fidelity": -2, "persuasion": 7, "reach": 9, "distortion": 4 }
       }
     ],

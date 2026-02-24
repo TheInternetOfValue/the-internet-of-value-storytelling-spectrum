@@ -3,7 +3,6 @@ import SpectrumScene from "@/components/SpectrumScene";
 import {
   advanceOneStep,
   applyModifier,
-  axisLabelById,
   craftCombination,
   createInitialState,
   dictionary,
@@ -12,16 +11,18 @@ import {
   getAvailableCombinations,
   getAvailableModifiers,
   getCombinationImpactDelta,
-  getCurrentImpactAxes,
   getModifierImpactDelta,
   getNextNodeId,
   getNode,
   resetRun,
-  rules,
 } from "@/lib/storytellingGame";
-import type { ImpactAxes, ImpactAxisId, StorytellingRunState } from "@/types/storytelling";
-
-type LensMode = "truth" | "persuasion" | "distortion";
+import type {
+  ActionFocusAnchor,
+  DistributionModifier,
+  ImpactAxes,
+  ImpactAxisId,
+  StorytellingRunState,
+} from "@/types/storytelling";
 
 type GateChallenge = {
   title: string;
@@ -39,7 +40,6 @@ type FocusedImpact = {
   delta: ImpactAxes;
 };
 
-const lensModes: LensMode[] = ["truth", "persuasion", "distortion"];
 const impactAxisIds: ImpactAxisId[] = [
   "sensory_activation",
   "ease_of_consumption",
@@ -53,10 +53,13 @@ const impactShortLabelById: Record<ImpactAxisId, string> = {
 
 const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
 const gateKey = (from: string, to: string) => `${from}->${to}`;
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 const formatImpactCompact = (delta: ImpactAxes) =>
   impactAxisIds
     .map((axisId) => `${impactShortLabelById[axisId]} ${formatSigned(delta[axisId])}`)
     .join(" | ");
+const getDistributionById = (modifierId: string): DistributionModifier | null =>
+  dictionary.variable_vocabulary.distribution.find((modifier) => modifier.id === modifierId) ?? null;
 
 const gateChallenges: Record<string, GateChallenge> = {
   "product->solution": {
@@ -102,11 +105,6 @@ const gateChallenges: Record<string, GateChallenge> = {
 
 const App = () => {
   const [state, setState] = useState<StorytellingRunState>(createInitialState);
-  const [cameraMode, setCameraMode] = useState<"guided" | "explore">("guided");
-  const [lensMode, setLensMode] = useState<LensMode>("truth");
-  const [splitView, setSplitView] = useState(false);
-  const [compareLens, setCompareLens] = useState<LensMode>("persuasion");
-  const [mobileTab, setMobileTab] = useState<"controls" | "impact">("controls");
   const [selectedCombinationId, setSelectedCombinationId] = useState("");
   const [selectedModifierId, setSelectedModifierId] = useState("");
   const [passedGateKeys, setPassedGateKeys] = useState<string[]>([]);
@@ -114,13 +112,15 @@ const App = () => {
   const [gateAnswer, setGateAnswer] = useState("");
   const [gateError, setGateError] = useState("");
   const [focusedImpact, setFocusedImpact] = useState<FocusedImpact | null>(null);
+  const [impactAnchor, setImpactAnchor] = useState<ActionFocusAnchor | null>(null);
+  const [impactPinned, setImpactPinned] = useState(false);
   const [transitionTick, setTransitionTick] = useState(0);
+  const impactDismissTimerRef = useRef<number | null>(null);
+  const impactPinnedRef = useRef(false);
 
   const currentNode = getNode(state.currentNodeId);
   const nextNodeId = getNextNodeId(state.currentNodeId);
-  const canAdvance = Boolean(nextNodeId);
 
-  const currentImpactAxes = useMemo(() => getCurrentImpactAxes(state), [state]);
   const availableCombinations = useMemo(() => getAvailableCombinations(state), [state]);
   const availableModifiers = useMemo(() => getAvailableModifiers(state), [state]);
   const { nextNode, delta: advanceImpactDelta } = useMemo(
@@ -149,11 +149,6 @@ const App = () => {
     );
   }, [state.appliedModifierIds]);
 
-  const selectedCombinationImpact = useMemo(
-    () => (selectedCombination ? getCombinationImpactDelta(selectedCombination.id) : null),
-    [selectedCombination]
-  );
-
   const selectedModifierImpact = useMemo(
     () => (selectedModifier ? getModifierImpactDelta(selectedModifier.id) : null),
     [selectedModifier]
@@ -166,28 +161,53 @@ const App = () => {
 
   const latestEvent = state.history.at(-1);
   const progressPercent = (currentNode.order / dictionary.core_spine.length) * 100;
-  const isComplete = state.currentNodeId === rules.run.target_node;
   const pendingGate = pendingGateKey ? gateChallenges[pendingGateKey] ?? null : null;
+  const activeDistribution = selectedModifier ?? appliedModifier;
+  const activeDistributionImpact = selectedModifierImpact ?? appliedModifierImpact;
 
-  const compareLensOptions = lensModes.filter((mode) => mode !== lensMode);
+  const clearImpactDismissTimer = useCallback(() => {
+    if (impactDismissTimerRef.current !== null) {
+      window.clearTimeout(impactDismissTimerRef.current);
+      impactDismissTimerRef.current = null;
+    }
+  }, []);
 
-  const defaultImpact: FocusedImpact = useMemo(
-    () => ({
-      kind: "advance",
-      title: `${currentNode.label} -> ${nextNode?.label ?? "Complete"}`,
-      detail: nextNode ? "Next core spine move" : "Core spine complete",
-      delta: advanceImpactDelta,
-    }),
-    [advanceImpactDelta, currentNode.label, nextNode]
+  const dismissFocusedImpact = useCallback(() => {
+    clearImpactDismissTimer();
+    impactPinnedRef.current = false;
+    setImpactPinned(false);
+    setFocusedImpact(null);
+    setImpactAnchor(null);
+  }, [clearImpactDismissTimer]);
+
+  const scheduleImpactDismiss = useCallback(
+    (delayMs = 2500) => {
+      clearImpactDismissTimer();
+      if (!focusedImpact || impactPinnedRef.current) return;
+
+      impactDismissTimerRef.current = window.setTimeout(() => {
+        if (impactPinnedRef.current) return;
+        setFocusedImpact(null);
+        setImpactAnchor(null);
+      }, delayMs);
+    },
+    [clearImpactDismissTimer, focusedImpact]
   );
 
-  const activeImpact = focusedImpact ?? defaultImpact;
-
   useEffect(() => {
-    if (compareLens === lensMode) {
-      setCompareLens(lensMode === "truth" ? "persuasion" : "truth");
+    if (!focusedImpact) {
+      clearImpactDismissTimer();
+      impactPinnedRef.current = false;
+      setImpactPinned(false);
+      return;
     }
-  }, [compareLens, lensMode]);
+
+    impactPinnedRef.current = false;
+    setImpactPinned(false);
+    scheduleImpactDismiss(2500);
+  }, [clearImpactDismissTimer, focusedImpact, scheduleImpactDismiss]);
+
+  useEffect(() => () => clearImpactDismissTimer(), [clearImpactDismissTimer]);
 
   const performAdvance = useCallback(() => {
     if (!nextNode) return;
@@ -242,35 +262,69 @@ const App = () => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const handleCraft = () => {
-    if (!selectedCombinationId || !selectedCombination) return;
+  const handleCraft = (combinationId = selectedCombinationId) => {
+    if (!combinationId) return;
+    const combo =
+      dictionary.combination_layer.find((entry) => entry.id === combinationId) ?? selectedCombination;
+    if (!combo) return;
 
-    const artifactLabel = getArtifactLabel(selectedCombination.output);
-    const delta = getCombinationImpactDelta(selectedCombination.id);
+    const artifactLabel = getArtifactLabel(combo.output);
+    const delta = getCombinationImpactDelta(combo.id);
     setFocusedImpact({
       kind: "combination",
-      title: `${selectedCombination.label} -> ${artifactLabel}`,
+      title: `${combo.label} -> ${artifactLabel}`,
       detail: "Combination crafted",
       delta,
     });
 
-    setState((prev) => craftCombination(prev, selectedCombinationId));
+    setState((prev) => craftCombination(prev, combinationId));
     setSelectedCombinationId("");
   };
 
-  const handleModifier = () => {
-    if (!selectedModifierId || !selectedModifier) return;
+  const handleModifier = (modifierId = selectedModifierId) => {
+    if (!modifierId) return;
+    const modifier = getDistributionById(modifierId) ?? selectedModifier;
+    if (!modifier) return;
 
-    const delta = getModifierImpactDelta(selectedModifierId);
+    const delta = getModifierImpactDelta(modifier.id);
     setFocusedImpact({
       kind: "modifier",
-      title: `Distribution: ${selectedModifier.label}`,
-      detail: "Distribution field applied",
+      title: `Distribution: ${modifier.label}`,
+      detail: modifier.description,
       delta,
     });
 
-    setState((prev) => applyModifier(prev, selectedModifierId));
+    setState((prev) => applyModifier(prev, modifier.id));
     setSelectedModifierId("");
+  };
+
+  const handleSelectCombination = (combinationId: string) => {
+    const combo = dictionary.combination_layer.find((entry) => entry.id === combinationId);
+    if (!combo) return;
+
+    const artifactLabel = getArtifactLabel(combo.output);
+    const delta = getCombinationImpactDelta(combo.id);
+    setSelectedCombinationId(combo.id);
+    setFocusedImpact({
+      kind: "combination",
+      title: `${combo.label} -> ${artifactLabel}`,
+      detail: "Combination preview (click combo again to craft)",
+      delta,
+    });
+  };
+
+  const handleSelectModifier = (modifierId: string) => {
+    const modifier = getDistributionById(modifierId);
+    if (!modifier) return;
+
+    const delta = getModifierImpactDelta(modifier.id);
+    setSelectedModifierId(modifier.id);
+    setFocusedImpact({
+      kind: "modifier",
+      title: `Distribution: ${modifier.label}`,
+      detail: `Preview: ${modifier.description} (click beacon again to apply)`,
+      delta,
+    });
   };
 
   const handleGateSubmit = () => {
@@ -294,12 +348,36 @@ const App = () => {
     setState(resetRun());
     setSelectedCombinationId("");
     setSelectedModifierId("");
-    setMobileTab("controls");
     setPassedGateKeys([]);
     setPendingGateKey(null);
     setGateAnswer("");
     setGateError("");
-    setFocusedImpact(null);
+    dismissFocusedImpact();
+  };
+
+  const handleActionFocus = (anchor: ActionFocusAnchor) => {
+    setImpactAnchor({
+      x: clamp(anchor.x, 0.2, 0.8),
+      y: clamp(anchor.y + 0.08, 0.12, 0.74),
+    });
+  };
+
+  const handleImpactPointerEnter = () => {
+    impactPinnedRef.current = true;
+    setImpactPinned(true);
+    clearImpactDismissTimer();
+  };
+
+  const handleImpactPointerLeave = () => {
+    impactPinnedRef.current = false;
+    setImpactPinned(false);
+    scheduleImpactDismiss(1200);
+  };
+
+  const handleImpactPointerDown = () => {
+    impactPinnedRef.current = true;
+    setImpactPinned(true);
+    clearImpactDismissTimer();
   };
 
   return (
@@ -311,60 +389,21 @@ const App = () => {
         </h1>
         <p>{currentNode.description}</p>
 
-        <div className="lens-switch">
-          {lensModes.map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setLensMode(mode)}
-              className={lensMode === mode ? "active" : ""}
-            >
-              {mode.charAt(0).toUpperCase() + mode.slice(1)} Lens
-            </button>
-          ))}
-        </div>
-
-        <div className="split-controls">
-          <button
-            onClick={() => setSplitView((value) => !value)}
-            className={splitView ? "active" : ""}
-          >
-            {splitView ? "Disable Split View" : "Enable Split View"}
+        <div className="header-meta">
+          <p className="status-line">
+            Progress {Math.round(progressPercent)}% | Gates {passedGateKeys.length}/3 |{" "}
+            {latestEvent ? `Latest: ${latestEvent.detail}` : "Latest: no move yet"}
+          </p>
+          <button onClick={handleReset} className="header-reset">
+            Reset Journey
           </button>
-          {splitView && (
-            <select
-              value={compareLens}
-              onChange={(event) => setCompareLens(event.target.value as LensMode)}
-            >
-              {compareLensOptions.map((mode) => (
-                <option key={mode} value={mode}>
-                  Compare {mode}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-        <p className="micro-note lens-note">
-          Split view compares lens interpretation, while impact stays on the same 3 axes.
-        </p>
-
-        <div className="status-chips">
-          <span>Progress {Math.round(progressPercent)}%</span>
-          <span>Camera {cameraMode}</span>
-          <span>
-            Profile: {impactShortLabelById.sensory_activation} {currentImpactAxes.sensory_activation} |{" "}
-            {impactShortLabelById.ease_of_consumption} {currentImpactAxes.ease_of_consumption} |{" "}
-            {impactShortLabelById.creation_effort} {currentImpactAxes.creation_effort}
-          </span>
-          <span>{appliedModifier ? `Modifier: ${appliedModifier.label}` : "Modifier: none"}</span>
-          <span>{latestEvent ? `Latest: ${latestEvent.detail}` : "Latest: no move yet"}</span>
         </div>
       </header>
 
-      <main className={`journey-layout${splitView ? " split-active" : ""}`}>
-        <section className={`scene-stage${splitView ? " split-mode" : ""}`}>
-          <div className={`scene-shell${splitView ? " dual" : ""}`}>
+      <main className="journey-layout">
+        <section className="scene-stage">
+          <div className="scene-shell">
             <div className="scene-pane primary-pane">
-              {splitView && <div className="pane-badge">Primary • {lensMode}</div>}
               <SpectrumScene
                 nodes={dictionary.core_spine}
                 currentNodeId={state.currentNodeId}
@@ -373,60 +412,74 @@ const App = () => {
                 craftedCombinationIds={state.craftedCombinationIds}
                 availableCombinationIds={availableCombinations.map((combo) => combo.id)}
                 selectedCombinationId={selectedCombinationId}
+                availableModifierIds={availableModifiers.map((modifier) => modifier.id)}
                 selectedModifierId={selectedModifierId}
                 appliedModifierIds={state.appliedModifierIds}
-                lensMode={lensMode}
+                lensMode="truth"
                 transitionTick={transitionTick}
-                cameraMode={cameraMode}
                 interactive
                 onAdvance={requestAdvance}
+                onSelectCombination={handleSelectCombination}
+                onCraftCombination={handleCraft}
+                onSelectModifier={handleSelectModifier}
+                onApplyModifier={handleModifier}
+                onActionFocus={handleActionFocus}
               />
             </div>
-
-            {splitView && (
-              <div className="scene-pane compare-pane">
-                <div className="pane-badge">Compare • {compareLens}</div>
-                <SpectrumScene
-                  nodes={dictionary.core_spine}
-                  currentNodeId={state.currentNodeId}
-                  nextNodeId={nextNodeId}
-                  visitedNodeIds={state.visitedNodeIds}
-                  craftedCombinationIds={state.craftedCombinationIds}
-                  availableCombinationIds={availableCombinations.map((combo) => combo.id)}
-                  selectedCombinationId={selectedCombinationId}
-                  selectedModifierId={selectedModifierId}
-                  appliedModifierIds={state.appliedModifierIds}
-                  lensMode={compareLens}
-                  transitionTick={transitionTick}
-                  cameraMode="guided"
-                  interactive={false}
-                  onAdvance={requestAdvance}
-                />
-              </div>
-            )}
           </div>
 
-          <div className="transition-card">
-            {focusedImpact && (
+          {focusedImpact && (
+            <div
+              className={`transition-card${impactAnchor ? " anchored" : ""}`}
+              style={
+                impactAnchor
+                  ? {
+                      left: `${impactAnchor.x * 100}%`,
+                      top: `${impactAnchor.y * 100}%`,
+                    }
+                  : undefined
+              }
+              onPointerEnter={handleImpactPointerEnter}
+              onPointerLeave={handleImpactPointerLeave}
+              onPointerDown={handleImpactPointerDown}
+            >
               <button
                 type="button"
                 className="transition-close"
-                onClick={() => setFocusedImpact(null)}
+                onClick={dismissFocusedImpact}
                 aria-label="Dismiss focused impact"
               >
                 Dismiss
               </button>
-            )}
-            <p>{activeImpact.title}</p>
-            <p className="impact-detail">{activeImpact.detail}</p>
-            <div>
-              {impactAxisIds.map((axisId) => (
-                <span key={axisId}>
-                  {impactShortLabelById[axisId]} {formatSigned(activeImpact.delta[axisId])}
-                </span>
-              ))}
+              {impactPinned && <p className="impact-pin">Pinned</p>}
+              <p>{focusedImpact.title}</p>
+              <p className="impact-detail">{focusedImpact.detail}</p>
+              <div>
+                {impactAxisIds.map((axisId) => (
+                  <span key={axisId}>
+                    {impactShortLabelById[axisId]} {formatSigned(focusedImpact.delta[axisId])}
+                  </span>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {activeDistribution && (
+            <div className="distribution-card">
+              <p>
+                <span
+                  className="distribution-dot"
+                  style={{ backgroundColor: activeDistribution.color_hex }}
+                  aria-hidden="true"
+                />
+                Distribution Field: {activeDistribution.label}
+              </p>
+              <p className="impact-detail">{activeDistribution.description}</p>
+              {activeDistributionImpact && (
+                <p className="micro-note">Impact preview: {formatImpactCompact(activeDistributionImpact)}</p>
+              )}
+            </div>
+          )}
 
           <div className="scene-hud">
             <span>Current: {currentNode.label}</span>
@@ -434,111 +487,6 @@ const App = () => {
             <span>Shortcut: Space / Right Arrow</span>
           </div>
         </section>
-
-        <aside className={`journey-panel mobile-${mobileTab}`}>
-          <div className="mobile-tabs">
-            <button
-              onClick={() => setMobileTab("controls")}
-              className={mobileTab === "controls" ? "active" : ""}
-            >
-              Controls
-            </button>
-            <button
-              onClick={() => setMobileTab("impact")}
-              className={mobileTab === "impact" ? "active" : ""}
-            >
-              Impact
-            </button>
-          </div>
-
-          <section className="panel-card controls-card">
-            <p className="card-label">Action</p>
-            <button onClick={requestAdvance} disabled={!canAdvance} className="primary-btn">
-              {isComplete ? "Reached Math" : "Advance One Step"}
-            </button>
-            <button
-              onClick={() => setCameraMode((prev) => (prev === "guided" ? "explore" : "guided"))}
-              className="ghost-btn camera-toggle"
-            >
-              {cameraMode === "guided" ? "Switch To Explore Camera" : "Switch To Guided Camera"}
-            </button>
-            <p className="micro-note">Explore mode: drag to orbit, scroll to zoom.</p>
-
-            <div className="inline-control">
-              <select
-                value={selectedCombinationId}
-                onChange={(event) => setSelectedCombinationId(event.target.value)}
-              >
-                <option value="">Select combination</option>
-                {availableCombinations.map((combo) => (
-                  <option key={combo.id} value={combo.id}>
-                    {combo.label} {"->"} {getArtifactLabel(combo.output)}
-                  </option>
-                ))}
-              </select>
-              <button onClick={handleCraft} disabled={!selectedCombinationId}>
-                Craft
-              </button>
-            </div>
-            <p className="micro-note">
-              {selectedCombination && selectedCombinationImpact
-                ? `${selectedCombination.label} -> ${getArtifactLabel(
-                    selectedCombination.output
-                  )} | ${formatImpactCompact(selectedCombinationImpact)}`
-                : availableCombinations.length > 0
-                  ? `${availableCombinations.length} combinations available`
-                  : "No combinations available yet"}
-            </p>
-
-            <div className="inline-control">
-              <select
-                value={selectedModifierId}
-                onChange={(event) => setSelectedModifierId(event.target.value)}
-              >
-                <option value="">Select distribution modifier</option>
-                {availableModifiers.map((modifier) => (
-                  <option key={modifier.id} value={modifier.id}>
-                    {modifier.label}
-                  </option>
-                ))}
-              </select>
-              <button onClick={handleModifier} disabled={!selectedModifierId}>
-                Apply
-              </button>
-            </div>
-            <p className="micro-note">
-              {selectedModifier && selectedModifierImpact
-                ? `Preview: ${selectedModifier.label} | ${formatImpactCompact(selectedModifierImpact)}`
-                : appliedModifier && appliedModifierImpact
-                  ? `Applied: ${appliedModifier.label} | ${formatImpactCompact(appliedModifierImpact)}`
-                  : "No modifier selected"}
-            </p>
-
-            <button onClick={handleReset} className="ghost-btn">
-              Reset Journey
-            </button>
-          </section>
-
-          <section className="panel-card impact-card">
-            <p className="card-label">Impact</p>
-            <p className="next-node">{activeImpact.title}</p>
-            <p className="micro-note">{activeImpact.detail}</p>
-            <ul className="delta-list">
-              {impactAxisIds.map((axisId) => (
-                <li key={axisId}>
-                  <span>{axisLabelById[axisId]}</span>
-                  <strong>{formatSigned(activeImpact.delta[axisId])}</strong>
-                </li>
-              ))}
-            </ul>
-            <p className="micro-note">
-              Current profile: {impactShortLabelById.sensory_activation} {currentImpactAxes.sensory_activation} |{" "}
-              {impactShortLabelById.ease_of_consumption} {currentImpactAxes.ease_of_consumption} |{" "}
-              {impactShortLabelById.creation_effort} {currentImpactAxes.creation_effort}
-            </p>
-            <p className="micro-note">Gate status: {passedGateKeys.length}/3 cleared</p>
-          </section>
-        </aside>
       </main>
 
       {pendingGate && (

@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { dictionary } from "@/lib/storytellingGame";
-import type { CombinationRecipe, SignalProfile, SpineNode } from "@/types/storytelling";
+import type {
+  ActionFocusAnchor,
+  CombinationRecipe,
+  DistributionModifier,
+  SignalProfile,
+  SpineNode,
+} from "@/types/storytelling";
 
 type LensMode = "truth" | "persuasion" | "distortion";
 
@@ -14,13 +20,18 @@ type SpectrumSceneProps = {
   craftedCombinationIds: string[];
   availableCombinationIds: string[];
   selectedCombinationId: string;
+  availableModifierIds: string[];
   selectedModifierId: string;
   appliedModifierIds: string[];
   lensMode: LensMode;
   transitionTick: number;
-  cameraMode: "guided" | "explore";
   interactive?: boolean;
   onAdvance: () => void;
+  onSelectCombination: (combinationId: string) => void;
+  onCraftCombination: (combinationId: string) => void;
+  onSelectModifier: (modifierId: string) => void;
+  onApplyModifier: (modifierId: string) => void;
+  onActionFocus?: (anchor: ActionFocusAnchor) => void;
 };
 
 type LinkRef = {
@@ -32,6 +43,14 @@ type LinkRef = {
 type ComboVisual = {
   line: THREE.Line;
   marker: THREE.Mesh;
+  label: THREE.Sprite;
+};
+
+type ModifierBeacon = {
+  group: THREE.Group;
+  core: THREE.Mesh;
+  halo: THREE.Mesh;
+  label: THREE.Sprite;
 };
 
 type ArtifactBirthEffect = {
@@ -57,6 +76,7 @@ type SceneRefs = {
   nodeMeshes: Map<string, THREE.Mesh>;
   spineLinks: LinkRef[];
   comboVisuals: Map<string, ComboVisual>;
+  modifierBeacons: Map<string, ModifierBeacon>;
   traveler: THREE.Mesh;
   pulseRing: THREE.Mesh;
   auraRing: THREE.Mesh;
@@ -66,7 +86,6 @@ type SceneRefs = {
   frameId: number;
   cleanupResize: () => void;
   cleanupPointer: () => void;
-  desiredCamera: THREE.Vector3;
 };
 
 const lensPalettes = {
@@ -118,14 +137,6 @@ const basePalette = {
   traveler: 0xfff2cb,
 };
 
-const modifierPalette: Record<string, number> = {
-  feed: 0xff7b91,
-  search: 0x6ed6ff,
-  direct: 0x9be59f,
-  community: 0xb28cff,
-  paid: 0xffb56b,
-};
-
 const lensScoreWeights: Record<LensMode, SignalProfile> = {
   truth: { fidelity: 1.45, persuasion: 0.42, reach: 0.6, distortion: -1.25 },
   persuasion: { fidelity: 0.28, persuasion: 1.34, reach: 1.08, distortion: 0.32 },
@@ -136,6 +147,15 @@ const combinationsById = new Map(dictionary.combination_layer.map((combo) => [co
 const artifactLabelsById = new Map(
   dictionary.extended_artifacts.map((artifact) => [artifact.id, artifact.label])
 );
+const distributionColorById = new Map(
+  dictionary.variable_vocabulary.distribution.map((modifier) => [modifier.id, modifier.color_hex])
+);
+
+const parseHexColor = (hex: string, fallback = 0x5dcdf2) => {
+  const normalized = hex.startsWith("#") ? hex.slice(1) : hex;
+  const parsed = Number.parseInt(normalized, 16);
+  return Number.isNaN(parsed) ? fallback : parsed;
+};
 
 const map = (value: number, inMin: number, inMax: number, outMin: number, outMax: number) => {
   const ratio = (value - inMin) / (inMax - inMin);
@@ -249,8 +269,63 @@ const createComboVisual = (
   );
   marker.position.copy(midpoint);
   marker.visible = false;
+  marker.userData = { clickType: "combo", comboId: combo.id };
 
-  return { line, marker };
+  const artifactLabel = artifactLabelsById.get(combo.output) ?? combo.output;
+  const label = createTextSprite(artifactLabel, "#ffe9b9", 16);
+  label.scale.multiplyScalar(0.62);
+  label.position.copy(midpoint).add(new THREE.Vector3(0, 0.74, 0));
+  label.visible = false;
+
+  return { line, marker, label };
+};
+
+const createModifierBeacon = (
+  modifier: DistributionModifier,
+  index: number,
+  total: number
+): ModifierBeacon => {
+  const group = new THREE.Group();
+  const spread = 10;
+  const slot = total <= 1 ? 0 : index / (total - 1);
+  const x = -spread / 2 + slot * spread;
+  group.position.set(x, 6.6, 8.1);
+
+  const color = parseHexColor(modifier.color_hex);
+
+  const halo = new THREE.Mesh(
+    new THREE.TorusGeometry(0.44, 0.04, 18, 42),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+    })
+  );
+  halo.rotation.x = Math.PI / 2;
+  group.add(halo);
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 22, 22),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: 0x123240,
+      emissiveIntensity: 0.8,
+      roughness: 0.32,
+      metalness: 0.22,
+      transparent: true,
+      opacity: 0.78,
+    })
+  );
+  core.userData = { clickType: "modifier", modifierId: modifier.id };
+  group.add(core);
+
+  const label = createTextSprite(modifier.label, "#d9f7ff", 16);
+  label.scale.multiplyScalar(0.55);
+  label.position.set(0, 0.6, 0);
+  group.add(label);
+
+  return { group, core, halo, label };
 };
 
 const disposeObjectResources = (object: THREE.Object3D) => {
@@ -366,28 +441,44 @@ const SpectrumScene = ({
   craftedCombinationIds,
   availableCombinationIds,
   selectedCombinationId,
+  availableModifierIds,
   selectedModifierId,
   appliedModifierIds,
   lensMode,
   transitionTick,
-  cameraMode,
   interactive = true,
   onAdvance,
+  onSelectCombination,
+  onCraftCombination,
+  onSelectModifier,
+  onApplyModifier,
+  onActionFocus,
 }: SpectrumSceneProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
 
   const onAdvanceRef = useRef(onAdvance);
+  const onSelectCombinationRef = useRef(onSelectCombination);
+  const onCraftCombinationRef = useRef(onCraftCombination);
+  const onSelectModifierRef = useRef(onSelectModifier);
+  const onApplyModifierRef = useRef(onApplyModifier);
+  const onActionFocusRef = useRef(onActionFocus);
   const nextNodeIdRef = useRef<string | null>(nextNodeId);
-  const cameraModeRef = useRef<"guided" | "explore">(cameraMode);
   const interactiveRef = useRef(interactive);
   const selectedCombinationRef = useRef(selectedCombinationId);
+  const selectedModifierRef = useRef(selectedModifierId);
+  const availableCombinationIdsRef = useRef(availableCombinationIds);
+  const availableModifierIdsRef = useRef(availableModifierIds);
   const craftedCombinationsRef = useRef(craftedCombinationIds);
   const transitionUntilRef = useRef(0);
 
   const safeVisited = useMemo(() => new Set(visitedNodeIds), [visitedNodeIds]);
   const safeCrafted = useMemo(() => new Set(craftedCombinationIds), [craftedCombinationIds]);
   const safeAvailable = useMemo(() => new Set(availableCombinationIds), [availableCombinationIds]);
+  const safeAvailableModifiers = useMemo(
+    () => new Set(availableModifierIds),
+    [availableModifierIds]
+  );
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const lensNodeEmphasis = useMemo(() => {
     if (nodes.length === 0) return new Map<string, number>();
@@ -418,12 +509,28 @@ const SpectrumScene = ({
   }, [onAdvance]);
 
   useEffect(() => {
-    nextNodeIdRef.current = nextNodeId;
-  }, [nextNodeId]);
+    onSelectCombinationRef.current = onSelectCombination;
+  }, [onSelectCombination]);
 
   useEffect(() => {
-    cameraModeRef.current = cameraMode;
-  }, [cameraMode]);
+    onCraftCombinationRef.current = onCraftCombination;
+  }, [onCraftCombination]);
+
+  useEffect(() => {
+    onSelectModifierRef.current = onSelectModifier;
+  }, [onSelectModifier]);
+
+  useEffect(() => {
+    onApplyModifierRef.current = onApplyModifier;
+  }, [onApplyModifier]);
+
+  useEffect(() => {
+    onActionFocusRef.current = onActionFocus;
+  }, [onActionFocus]);
+
+  useEffect(() => {
+    nextNodeIdRef.current = nextNodeId;
+  }, [nextNodeId]);
 
   useEffect(() => {
     interactiveRef.current = interactive;
@@ -432,6 +539,18 @@ const SpectrumScene = ({
   useEffect(() => {
     selectedCombinationRef.current = selectedCombinationId;
   }, [selectedCombinationId]);
+
+  useEffect(() => {
+    selectedModifierRef.current = selectedModifierId;
+  }, [selectedModifierId]);
+
+  useEffect(() => {
+    availableCombinationIdsRef.current = availableCombinationIds;
+  }, [availableCombinationIds]);
+
+  useEffect(() => {
+    availableModifierIdsRef.current = availableModifierIds;
+  }, [availableModifierIds]);
 
   useEffect(() => {
     if (transitionTick > 0) {
@@ -465,7 +584,7 @@ const SpectrumScene = ({
     controls.maxDistance = 34;
     controls.minPolarAngle = 0.25;
     controls.maxPolarAngle = 1.46;
-    controls.enabled = interactiveRef.current && cameraModeRef.current === "explore";
+    controls.enabled = interactiveRef.current;
 
     const ambient = new THREE.AmbientLight(lens.ambient, 0.62);
     scene.add(ambient);
@@ -520,6 +639,18 @@ const SpectrumScene = ({
     zLabel.position.set(-10.9, -3.2, 6.9);
     scene.add(zLabel);
 
+    const sensoryOriginLabel = createTextSprite("Sensory Axis", "#9ddce4", 15);
+    sensoryOriginLabel.position.set(-8.8, -3.2, -9.1);
+    scene.add(sensoryOriginLabel);
+
+    const easeOriginLabel = createTextSprite("Ease Axis", "#9ddce4", 15);
+    easeOriginLabel.position.set(-11.0, -1.8, -9.1);
+    scene.add(easeOriginLabel);
+
+    const creationOriginLabel = createTextSprite("Creation Axis", "#9ddce4", 15);
+    creationOriginLabel.position.set(-11.0, -3.2, -6.8);
+    scene.add(creationOriginLabel);
+
     const nodePositions = new Map<string, THREE.Vector3>();
     const nodeMeshes = new Map<string, THREE.Mesh>();
 
@@ -538,7 +669,7 @@ const SpectrumScene = ({
 
       const mesh = new THREE.Mesh(nodeGeometry, material);
       mesh.position.copy(position);
-      mesh.userData = { nodeId: node.id };
+      mesh.userData = { clickType: "node", nodeId: node.id };
       scene.add(mesh);
       nodeMeshes.set(node.id, mesh);
 
@@ -570,7 +701,19 @@ const SpectrumScene = ({
       if (!visual) return;
       scene.add(visual.line);
       scene.add(visual.marker);
+      scene.add(visual.label);
       comboVisuals.set(combo.id, visual);
+    });
+
+    const modifierBeacons = new Map<string, ModifierBeacon>();
+    dictionary.variable_vocabulary.distribution.forEach((modifier, index) => {
+      const beacon = createModifierBeacon(
+        modifier,
+        index,
+        dictionary.variable_vocabulary.distribution.length
+      );
+      scene.add(beacon.group);
+      modifierBeacons.set(modifier.id, beacon);
     });
 
     const traveler = new THREE.Mesh(
@@ -618,20 +761,62 @@ const SpectrumScene = ({
     window.addEventListener("resize", onResize);
 
     const onSceneClick = (event: MouseEvent) => {
-      if (!interactiveRef.current || !nextNodeIdRef.current) return;
+      if (!interactiveRef.current) return;
 
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(pointer, camera);
 
-      const intersects = raycaster.intersectObjects([...nodeMeshes.values()], false);
+      const hitTargets = [
+        ...nodeMeshes.values(),
+        ...Array.from(comboVisuals.values(), (entry) => entry.marker),
+        ...Array.from(modifierBeacons.values(), (entry) => entry.core),
+      ];
+      const intersects = raycaster.intersectObjects(hitTargets, false);
       const hit = intersects[0];
       if (!hit) return;
 
-      const nodeId = (hit.object as THREE.Mesh).userData.nodeId as string;
-      if (nodeId === nextNodeIdRef.current) {
-        onAdvanceRef.current();
+      onActionFocusRef.current?.({
+        x: (event.clientX - rect.left) / rect.width,
+        y: (event.clientY - rect.top) / rect.height,
+      });
+
+      const clickType = (hit.object as THREE.Mesh).userData.clickType as
+        | "node"
+        | "combo"
+        | "modifier"
+        | undefined;
+
+      if (clickType === "node") {
+        const nodeId = (hit.object as THREE.Mesh).userData.nodeId as string;
+        if (nodeId === nextNodeIdRef.current) {
+          onAdvanceRef.current();
+        }
+        return;
+      }
+
+      if (clickType === "combo") {
+        const comboId = (hit.object as THREE.Mesh).userData.comboId as string;
+        const available = availableCombinationIdsRef.current.includes(comboId);
+        if (!available) return;
+        if (selectedCombinationRef.current === comboId) {
+          onCraftCombinationRef.current(comboId);
+        } else {
+          onSelectCombinationRef.current(comboId);
+        }
+        return;
+      }
+
+      if (clickType === "modifier") {
+        const modifierId = (hit.object as THREE.Mesh).userData.modifierId as string;
+        const available = availableModifierIdsRef.current.includes(modifierId);
+        if (!available) return;
+        if (selectedModifierRef.current === modifierId) {
+          onApplyModifierRef.current(modifierId);
+        } else {
+          onSelectModifierRef.current(modifierId);
+        }
       }
     };
 
@@ -653,6 +838,7 @@ const SpectrumScene = ({
       nodeMeshes,
       spineLinks,
       comboVisuals,
+      modifierBeacons,
       traveler,
       pulseRing,
       auraRing,
@@ -662,7 +848,6 @@ const SpectrumScene = ({
       frameId: 0,
       cleanupResize: () => window.removeEventListener("resize", onResize),
       cleanupPointer: () => renderer.domElement.removeEventListener("click", onSceneClick),
-      desiredCamera: new THREE.Vector3(startPosition.x + 5.3, startPosition.y + 4.6, startPosition.z + 8.4),
     };
 
     const clock = new THREE.Clock();
@@ -689,6 +874,13 @@ const SpectrumScene = ({
           const pulse = 1 + Math.sin(elapsed * 5.2) * 0.22;
           marker.scale.setScalar(pulse);
         }
+      });
+
+      stateRef.modifierBeacons.forEach(({ core, halo }, modifierId) => {
+        if (modifierId !== selectedModifierRef.current) return;
+        const pulse = 1 + Math.sin(elapsed * 5) * 0.18;
+        core.scale.setScalar(pulse);
+        halo.scale.setScalar(1 + Math.sin(elapsed * 4.1) * 0.08);
       });
 
       const now = performance.now();
@@ -721,23 +913,8 @@ const SpectrumScene = ({
         labelMaterial.opacity = 0.96 * (1 - progress);
       });
 
-      if (cameraModeRef.current === "guided") {
-        stateRef.controls.enabled = false;
-        stateRef.controls.target.lerp(stateRef.targetPosition, isTransitioning ? 0.25 : 0.15);
-        const camTarget = stateRef.controls.target;
-        const offsetX = interactiveRef.current ? 5.3 : -6.2;
-        const offsetY = interactiveRef.current ? 4.6 : 6.1;
-        const offsetZ = interactiveRef.current ? 8.4 : 9.2;
-        stateRef.desiredCamera.set(camTarget.x + offsetX, camTarget.y + offsetY, camTarget.z + offsetZ);
-        stateRef.camera.position.lerp(stateRef.desiredCamera, isTransitioning ? 0.11 : 0.035);
-        const targetFov = isTransitioning ? 47 : 52;
-        stateRef.camera.fov += (targetFov - stateRef.camera.fov) * 0.09;
-        stateRef.camera.updateProjectionMatrix();
-        stateRef.controls.update();
-      } else {
-        stateRef.controls.enabled = interactiveRef.current;
-        stateRef.controls.update();
-      }
+      stateRef.controls.enabled = interactiveRef.current;
+      stateRef.controls.update();
 
       stateRef.renderer.render(stateRef.scene, stateRef.camera);
       stateRef.frameId = window.requestAnimationFrame(animate);
@@ -827,7 +1004,7 @@ const SpectrumScene = ({
       }
     });
 
-    sceneRefs.comboVisuals.forEach(({ line, marker }, comboId) => {
+    sceneRefs.comboVisuals.forEach(({ line, marker, label }, comboId) => {
       const crafted = safeCrafted.has(comboId);
       const selected = comboId === selectedCombinationId;
       const available = safeAvailable.has(comboId);
@@ -837,6 +1014,7 @@ const SpectrumScene = ({
         setLineColor(line, lens.comboCrafted, 0.93);
         marker.visible = true;
         marker.scale.setScalar(birthing ? 1.36 : 1.1);
+        label.visible = true;
         const material = marker.material as THREE.MeshStandardMaterial;
         material.color.setHex(lens.comboCrafted);
         material.emissive.setHex(birthing ? 0xb2711f : 0x6a521b);
@@ -845,6 +1023,7 @@ const SpectrumScene = ({
         setLineColor(line, lens.comboSelected, 0.9);
         marker.visible = true;
         marker.scale.setScalar(1.12);
+        label.visible = false;
         const material = marker.material as THREE.MeshStandardMaterial;
         material.color.setHex(lens.comboSelected);
         material.emissive.setHex(0x6b1a5f);
@@ -853,6 +1032,7 @@ const SpectrumScene = ({
         setLineColor(line, lens.comboAvailable, 0.62);
         marker.visible = true;
         marker.scale.setScalar(0.95);
+        label.visible = false;
         const material = marker.material as THREE.MeshStandardMaterial;
         material.color.setHex(lens.comboAvailable);
         material.emissive.setHex(0x15556b);
@@ -860,6 +1040,49 @@ const SpectrumScene = ({
       } else {
         setLineColor(line, basePalette.comboLocked, 0.12);
         marker.visible = false;
+        label.visible = false;
+      }
+    });
+
+    sceneRefs.modifierBeacons.forEach(({ core, halo, label }, modifierId) => {
+      const color = parseHexColor(distributionColorById.get(modifierId) ?? "#5dcdf2");
+      const isApplied = appliedModifierIds.includes(modifierId);
+      const isSelected = modifierId === selectedModifierId;
+      const isAvailable = safeAvailableModifiers.has(modifierId);
+
+      const coreMaterial = core.material as THREE.MeshStandardMaterial;
+      const haloMaterial = halo.material as THREE.MeshBasicMaterial;
+      const labelMaterial = label.material as THREE.SpriteMaterial;
+
+      coreMaterial.color.setHex(color);
+
+      if (isApplied) {
+        core.visible = true;
+        core.scale.setScalar(0.96);
+        coreMaterial.emissive.setHex(0x19483a);
+        coreMaterial.opacity = 0.58;
+        haloMaterial.opacity = 0.14;
+        labelMaterial.opacity = 0.66;
+      } else if (isSelected) {
+        core.visible = true;
+        coreMaterial.emissive.setHex(0x2e8ab0);
+        coreMaterial.opacity = 0.96;
+        haloMaterial.opacity = 0.52;
+        labelMaterial.opacity = 1;
+      } else if (isAvailable) {
+        core.visible = true;
+        core.scale.setScalar(1);
+        coreMaterial.emissive.setHex(0x123240);
+        coreMaterial.opacity = 0.78;
+        haloMaterial.opacity = 0.22;
+        labelMaterial.opacity = 0.88;
+      } else {
+        core.visible = true;
+        core.scale.setScalar(0.9);
+        coreMaterial.emissive.setHex(0x111a22);
+        coreMaterial.opacity = 0.25;
+        haloMaterial.opacity = 0.05;
+        labelMaterial.opacity = 0.34;
       }
     });
 
@@ -883,7 +1106,10 @@ const SpectrumScene = ({
 
     const activeAppliedModifier = appliedModifierIds.at(-1);
     const activeModifierId = selectedModifierId || activeAppliedModifier || "";
-    const modifierColor = modifierPalette[activeModifierId];
+    const modifierColorHex = distributionColorById.get(activeModifierId);
+    const modifierColor = modifierColorHex
+      ? Number.parseInt(modifierColorHex.replace("#", ""), 16)
+      : undefined;
 
     const bgColor = new THREE.Color(lens.bgA);
     const floorColor = new THREE.Color(lens.bgB);
@@ -919,6 +1145,7 @@ const SpectrumScene = ({
     safeVisited,
     safeCrafted,
     safeAvailable,
+    safeAvailableModifiers,
     selectedCombinationId,
     selectedModifierId,
     appliedModifierIds,

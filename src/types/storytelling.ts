@@ -18,6 +18,11 @@ export type ImpactAxisId =
 
 export type ImpactAxes = Record<ImpactAxisId, number>;
 
+export type ActionFocusAnchor = {
+  x: number;
+  y: number;
+};
+
 export type SpineNode = {
   id: string;
   label: string;
@@ -40,6 +45,8 @@ export type CombinationRecipe = {
 export type DistributionModifier = {
   id: string;
   label: string;
+  description: string;
+  color_hex: string;
   metric_delta: SignalProfile;
 };
 
