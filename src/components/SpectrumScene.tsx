@@ -11,6 +11,9 @@ type SpectrumSceneProps = {
   visitedNodeIds: string[];
   craftedCombinationIds: string[];
   availableCombinationIds: string[];
+  selectedCombinationId: string;
+  selectedModifierId: string;
+  appliedModifierIds: string[];
   cameraMode: "guided" | "explore";
   onAdvance: () => void;
 };
@@ -19,6 +22,11 @@ type LinkRef = {
   from: string;
   to: string;
   line: THREE.Line;
+};
+
+type ComboVisual = {
+  line: THREE.Line;
+  marker: THREE.Mesh;
 };
 
 type SceneRefs = {
@@ -32,15 +40,18 @@ type SceneRefs = {
   nodePositions: Map<string, THREE.Vector3>;
   nodeMeshes: Map<string, THREE.Mesh>;
   spineLinks: LinkRef[];
-  comboLines: Map<string, THREE.Line>;
+  comboVisuals: Map<string, ComboVisual>;
   traveler: THREE.Mesh;
   pulseRing: THREE.Mesh;
+  auraRing: THREE.Mesh;
+  ambient: THREE.AmbientLight;
+  floorMaterial: THREE.MeshStandardMaterial;
   frameId: number;
   cleanupResize: () => void;
   cleanupPointer: () => void;
 };
 
-const colors = {
+const basePalette = {
   bgA: 0x07131a,
   bgB: 0x0e2630,
   nodeIdle: 0x57707a,
@@ -51,9 +62,18 @@ const colors = {
   spineVisited: 0x66efd0,
   comboLocked: 0x4f5f67,
   comboAvailable: 0x5dcdf2,
+  comboSelected: 0xff7be8,
   comboCrafted: 0xffdb7a,
   traveler: 0xfff2cb,
   axis: 0x73909a,
+};
+
+const modifierPalette: Record<string, number> = {
+  feed: 0xff7b91,
+  search: 0x6ed6ff,
+  direct: 0x9be59f,
+  community: 0xb28cff,
+  paid: 0xffb56b,
 };
 
 const map = (value: number, inMin: number, inMax: number, outMin: number, outMax: number) => {
@@ -71,22 +91,17 @@ const getNodePosition = (node: SpineNode) => {
 const createTextSprite = (text: string, color = "#dceff2", fontSize = 30) => {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    return new THREE.Sprite();
-  }
+  if (!ctx) return new THREE.Sprite();
 
   ctx.font = `700 ${fontSize}px sans-serif`;
   const metrics = ctx.measureText(text);
   const width = Math.ceil(metrics.width + 40);
   const height = Math.ceil(fontSize + 26);
-
   canvas.width = width;
   canvas.height = height;
 
   const draw = canvas.getContext("2d");
-  if (!draw) {
-    return new THREE.Sprite();
-  }
+  if (!draw) return new THREE.Sprite();
 
   draw.fillStyle = "rgba(7, 19, 26, 0.6)";
   draw.fillRect(0, 0, width, height);
@@ -120,7 +135,11 @@ const setNodeVisual = (mesh: THREE.Mesh, color: number, emissive: number, scale 
   mesh.scale.setScalar(scale);
 };
 
-const createComboLine = (combo: CombinationRecipe, nodePositions: Map<string, THREE.Vector3>, index: number) => {
+const createComboVisual = (
+  combo: CombinationRecipe,
+  nodePositions: Map<string, THREE.Vector3>,
+  index: number
+): ComboVisual | null => {
   const inputPoints = combo.inputs
     .map((id) => nodePositions.get(id))
     .filter((position): position is THREE.Vector3 => Boolean(position));
@@ -138,14 +157,32 @@ const createComboLine = (combo: CombinationRecipe, nodePositions: Map<string, TH
 
   const curve = new THREE.QuadraticBezierCurve3(start, control, end);
   const points = curve.getPoints(36);
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const material = new THREE.LineBasicMaterial({
-    color: colors.comboLocked,
-    transparent: true,
-    opacity: 0.14,
-  });
 
-  return new THREE.Line(geometry, material);
+  const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
+  const lineMaterial = new THREE.LineBasicMaterial({
+    color: basePalette.comboLocked,
+    transparent: true,
+    opacity: 0.12,
+  });
+  const line = new THREE.Line(lineGeometry, lineMaterial);
+
+  const midpoint = curve.getPoint(0.5);
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.14, 20, 20),
+    new THREE.MeshStandardMaterial({
+      color: basePalette.comboLocked,
+      emissive: 0x111a20,
+      emissiveIntensity: 0.9,
+      transparent: true,
+      opacity: 0.18,
+      roughness: 0.35,
+      metalness: 0.2,
+    })
+  );
+  marker.position.copy(midpoint);
+  marker.visible = false;
+
+  return { line, marker };
 };
 
 const disposeScene = (scene: THREE.Scene) => {
@@ -174,6 +211,9 @@ const SpectrumScene = ({
   visitedNodeIds,
   craftedCombinationIds,
   availableCombinationIds,
+  selectedCombinationId,
+  selectedModifierId,
+  appliedModifierIds,
   cameraMode,
   onAdvance,
 }: SpectrumSceneProps) => {
@@ -203,8 +243,8 @@ const SpectrumScene = ({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(colors.bgA);
-    scene.fog = new THREE.Fog(colors.bgA, 20, 46);
+    scene.background = new THREE.Color(basePalette.bgA);
+    scene.fog = new THREE.Fog(basePalette.bgA, 20, 46);
 
     const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 100);
     camera.position.set(4, 9, 18);
@@ -235,16 +275,15 @@ const SpectrumScene = ({
     fill.position.set(-8, 3, -5);
     scene.add(fill);
 
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(34, 26),
-      new THREE.MeshStandardMaterial({
-        color: colors.bgB,
-        transparent: true,
-        opacity: 0.62,
-        roughness: 0.9,
-        metalness: 0,
-      })
-    );
+    const floorMaterial = new THREE.MeshStandardMaterial({
+      color: basePalette.bgB,
+      transparent: true,
+      opacity: 0.62,
+      roughness: 0.9,
+      metalness: 0,
+    });
+
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(34, 26), floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.position.y = -4.2;
     scene.add(floor);
@@ -253,7 +292,7 @@ const SpectrumScene = ({
     grid.position.y = -4.18;
     scene.add(grid);
 
-    const axisMaterial = new THREE.LineBasicMaterial({ color: colors.axis, transparent: true, opacity: 0.82 });
+    const axisMaterial = new THREE.LineBasicMaterial({ color: basePalette.axis, transparent: true, opacity: 0.82 });
     const axisPoints: [THREE.Vector3, THREE.Vector3][] = [
       [new THREE.Vector3(-11.5, -3.9, -9.2), new THREE.Vector3(12, -3.9, -9.2)],
       [new THREE.Vector3(-11.5, -3.9, -9.2), new THREE.Vector3(-11.5, 8.5, -9.2)],
@@ -287,7 +326,7 @@ const SpectrumScene = ({
       nodePositions.set(node.id, position);
 
       const material = new THREE.MeshStandardMaterial({
-        color: colors.nodeIdle,
+        color: basePalette.nodeIdle,
         emissive: 0x07131a,
         emissiveIntensity: 0.9,
         roughness: 0.38,
@@ -316,24 +355,25 @@ const SpectrumScene = ({
       const geometry = new THREE.BufferGeometry().setFromPoints([from, to]);
       const line = new THREE.Line(
         geometry,
-        new THREE.LineBasicMaterial({ color: colors.spineLocked, transparent: true, opacity: 0.34 })
+        new THREE.LineBasicMaterial({ color: basePalette.spineLocked, transparent: true, opacity: 0.34 })
       );
       scene.add(line);
       spineLinks.push({ from: node.id, to: next.id, line });
     });
 
-    const comboLines = new Map<string, THREE.Line>();
+    const comboVisuals = new Map<string, ComboVisual>();
     dictionary.combination_layer.forEach((combo, index) => {
-      const line = createComboLine(combo, nodePositions, index);
-      if (!line) return;
-      scene.add(line);
-      comboLines.set(combo.id, line);
+      const visual = createComboVisual(combo, nodePositions, index);
+      if (!visual) return;
+      scene.add(visual.line);
+      scene.add(visual.marker);
+      comboVisuals.set(combo.id, visual);
     });
 
     const traveler = new THREE.Mesh(
       new THREE.SphereGeometry(0.2, 24, 24),
       new THREE.MeshStandardMaterial({
-        color: colors.traveler,
+        color: basePalette.traveler,
         emissive: 0xdab86f,
         emissiveIntensity: 0.8,
       })
@@ -342,10 +382,22 @@ const SpectrumScene = ({
 
     const pulseRing = new THREE.Mesh(
       new THREE.TorusGeometry(0.58, 0.045, 24, 48),
-      new THREE.MeshBasicMaterial({ color: colors.nodeNext, transparent: true, opacity: 0.75 })
+      new THREE.MeshBasicMaterial({ color: basePalette.nodeNext, transparent: true, opacity: 0.75 })
     );
     pulseRing.rotation.x = Math.PI / 2;
     scene.add(pulseRing);
+
+    const auraRing = new THREE.Mesh(
+      new THREE.TorusGeometry(1.1, 0.08, 24, 60),
+      new THREE.MeshBasicMaterial({
+        color: 0x5dcdf2,
+        transparent: true,
+        opacity: 0.1,
+      })
+    );
+    auraRing.rotation.x = Math.PI / 2;
+    auraRing.visible = false;
+    scene.add(auraRing);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -384,6 +436,7 @@ const SpectrumScene = ({
 
     const startPosition = nodePositions.get(currentNodeId) ?? new THREE.Vector3();
     traveler.position.copy(startPosition);
+    controls.target.copy(startPosition);
 
     const stateRef: SceneRefs = {
       scene,
@@ -396,9 +449,12 @@ const SpectrumScene = ({
       nodePositions,
       nodeMeshes,
       spineLinks,
-      comboLines,
+      comboVisuals,
       traveler,
       pulseRing,
+      auraRing,
+      ambient,
+      floorMaterial,
       frameId: 0,
       cleanupResize: () => window.removeEventListener("resize", onResize),
       cleanupPointer: () => renderer.domElement.removeEventListener("click", onSceneClick),
@@ -411,11 +467,23 @@ const SpectrumScene = ({
 
       stateRef.traveler.position.lerp(stateRef.targetPosition, 0.12);
 
-      if (nextNodeId && stateRef.pulseRing.visible) {
+      if (nextNodeIdRef.current && stateRef.pulseRing.visible) {
         stateRef.pulseRing.scale.setScalar(wave);
         const material = stateRef.pulseRing.material as THREE.MeshBasicMaterial;
         material.opacity = 0.6 + Math.sin(elapsed * 4.5) * 0.2;
       }
+
+      if (stateRef.auraRing.visible) {
+        stateRef.auraRing.position.copy(stateRef.traveler.position);
+        stateRef.auraRing.scale.setScalar(1 + Math.sin(elapsed * 2.4) * 0.06);
+      }
+
+      stateRef.comboVisuals.forEach(({ marker }, comboId) => {
+        if (comboId === selectedCombinationId) {
+          const pulse = 1 + Math.sin(elapsed * 5.2) * 0.22;
+          marker.scale.setScalar(pulse);
+        }
+      });
 
       if (cameraModeRef.current === "guided") {
         stateRef.controls.enabled = false;
@@ -446,7 +514,7 @@ const SpectrumScene = ({
       container.removeChild(stateRef.renderer.domElement);
       refs.current = null;
     };
-  }, [nodes]);
+  }, [nodes, currentNodeId, selectedCombinationId]);
 
   useEffect(() => {
     const sceneRefs = refs.current;
@@ -458,13 +526,13 @@ const SpectrumScene = ({
       const isVisited = safeVisited.has(nodeId);
 
       if (isCurrent) {
-        setNodeVisual(mesh, colors.nodeCurrent, 0xa66314, 1.18);
+        setNodeVisual(mesh, basePalette.nodeCurrent, 0xa66314, 1.18);
       } else if (isNext) {
-        setNodeVisual(mesh, colors.nodeNext, 0x138873, 1.08);
+        setNodeVisual(mesh, basePalette.nodeNext, 0x138873, 1.08);
       } else if (isVisited) {
-        setNodeVisual(mesh, colors.nodeVisited, 0x0e5a55, 1.02);
+        setNodeVisual(mesh, basePalette.nodeVisited, 0x0e5a55, 1.02);
       } else {
-        setNodeVisual(mesh, colors.nodeIdle, 0x07131a, 0.95);
+        setNodeVisual(mesh, basePalette.nodeIdle, 0x07131a, 0.95);
       }
     });
 
@@ -474,21 +542,46 @@ const SpectrumScene = ({
       const isCurrentPath = from === currentNodeId && to === nextNodeId;
 
       if (fromVisited && toVisited) {
-        setLineColor(line, colors.spineVisited, 0.88);
+        setLineColor(line, basePalette.spineVisited, 0.88);
       } else if (isCurrentPath) {
-        setLineColor(line, colors.nodeNext, 0.78);
+        setLineColor(line, basePalette.nodeNext, 0.78);
       } else {
-        setLineColor(line, colors.spineLocked, 0.32);
+        setLineColor(line, basePalette.spineLocked, 0.32);
       }
     });
 
-    sceneRefs.comboLines.forEach((line, comboId) => {
-      if (safeCrafted.has(comboId)) {
-        setLineColor(line, colors.comboCrafted, 0.9);
-      } else if (safeAvailable.has(comboId)) {
-        setLineColor(line, colors.comboAvailable, 0.62);
+    sceneRefs.comboVisuals.forEach(({ line, marker }, comboId) => {
+      const crafted = safeCrafted.has(comboId);
+      const selected = comboId === selectedCombinationId;
+      const available = safeAvailable.has(comboId);
+
+      if (crafted) {
+        setLineColor(line, basePalette.comboCrafted, 0.93);
+        marker.visible = true;
+        marker.scale.setScalar(1.1);
+        const material = marker.material as THREE.MeshStandardMaterial;
+        material.color.setHex(basePalette.comboCrafted);
+        material.emissive.setHex(0x6a521b);
+        material.opacity = 0.95;
+      } else if (selected) {
+        setLineColor(line, basePalette.comboSelected, 0.9);
+        marker.visible = true;
+        marker.scale.setScalar(1.14);
+        const material = marker.material as THREE.MeshStandardMaterial;
+        material.color.setHex(basePalette.comboSelected);
+        material.emissive.setHex(0x6b1a5f);
+        material.opacity = 0.92;
+      } else if (available) {
+        setLineColor(line, basePalette.comboAvailable, 0.62);
+        marker.visible = true;
+        marker.scale.setScalar(0.95);
+        const material = marker.material as THREE.MeshStandardMaterial;
+        material.color.setHex(basePalette.comboAvailable);
+        material.emissive.setHex(0x15556b);
+        material.opacity = 0.48;
       } else {
-        setLineColor(line, colors.comboLocked, 0.12);
+        setLineColor(line, basePalette.comboLocked, 0.12);
+        marker.visible = false;
       }
     });
 
@@ -506,7 +599,41 @@ const SpectrumScene = ({
     } else {
       sceneRefs.pulseRing.visible = false;
     }
-  }, [currentNodeId, nextNodeId, safeVisited, safeCrafted, safeAvailable]);
+
+    const activeAppliedModifier = appliedModifierIds.at(-1);
+    const activeModifierId = selectedModifierId || activeAppliedModifier || "";
+    const modifierColor = modifierPalette[activeModifierId];
+
+    if (modifierColor) {
+      const isPreview = Boolean(selectedModifierId);
+      sceneRefs.auraRing.visible = true;
+      const auraMaterial = sceneRefs.auraRing.material as THREE.MeshBasicMaterial;
+      auraMaterial.color.setHex(modifierColor);
+      auraMaterial.opacity = isPreview ? 0.22 : 0.34;
+
+      sceneRefs.ambient.color.setHex(modifierColor);
+      sceneRefs.ambient.intensity = isPreview ? 0.56 : 0.72;
+      sceneRefs.floorMaterial.color.setHex(isPreview ? 0x102c36 : 0x18323a);
+      sceneRefs.scene.background = new THREE.Color(isPreview ? 0x07131d : 0x0f1620);
+      sceneRefs.scene.fog = new THREE.Fog(isPreview ? 0x07131d : 0x0f1620, 20, 46);
+    } else {
+      sceneRefs.auraRing.visible = false;
+      sceneRefs.ambient.color.setHex(0xa9cad3);
+      sceneRefs.ambient.intensity = 0.62;
+      sceneRefs.floorMaterial.color.setHex(basePalette.bgB);
+      sceneRefs.scene.background = new THREE.Color(basePalette.bgA);
+      sceneRefs.scene.fog = new THREE.Fog(basePalette.bgA, 20, 46);
+    }
+  }, [
+    currentNodeId,
+    nextNodeId,
+    safeVisited,
+    safeCrafted,
+    safeAvailable,
+    selectedCombinationId,
+    selectedModifierId,
+    appliedModifierIds,
+  ]);
 
   return <div ref={containerRef} className="spectrum-canvas" aria-label="3D storytelling spectrum" />;
 };

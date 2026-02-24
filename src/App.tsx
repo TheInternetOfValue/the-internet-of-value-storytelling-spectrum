@@ -4,7 +4,6 @@ import {
   addReflection,
   advanceOneStep,
   applyModifier,
-  computeCurrentAxisValues,
   computeCurrentSignalProfile,
   craftCombination,
   createInitialState,
@@ -21,12 +20,12 @@ import {
 import type { SignalMetric, StorytellingRunState } from "@/types/storytelling";
 
 const signalKeys: SignalMetric[] = ["fidelity", "persuasion", "reach", "distortion"];
-
 const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
 
 const App = () => {
   const [state, setState] = useState<StorytellingRunState>(createInitialState);
   const [cameraMode, setCameraMode] = useState<"guided" | "explore">("guided");
+  const [mobileTab, setMobileTab] = useState<"controls" | "impact" | "log">("controls");
   const [selectedCombinationId, setSelectedCombinationId] = useState("");
   const [selectedModifierId, setSelectedModifierId] = useState("");
   const [reflectionDraft, setReflectionDraft] = useState("");
@@ -36,10 +35,33 @@ const App = () => {
   const canAdvance = Boolean(nextNodeId);
 
   const currentSignal = useMemo(() => computeCurrentSignalProfile(state), [state]);
-  const currentAxes = useMemo(() => computeCurrentAxisValues(state), [state]);
   const availableCombinations = useMemo(() => getAvailableCombinations(state), [state]);
   const availableModifiers = useMemo(() => getAvailableModifiers(state), [state]);
   const { nextNode, delta: advanceDelta } = useMemo(() => getAdvanceDelta(state), [state]);
+
+  const selectedCombination = useMemo(
+    () => dictionary.combination_layer.find((combo) => combo.id === selectedCombinationId) ?? null,
+    [selectedCombinationId]
+  );
+
+  const selectedModifier = useMemo(
+    () =>
+      dictionary.variable_vocabulary.distribution.find(
+        (modifier) => modifier.id === selectedModifierId
+      ) ?? null,
+    [selectedModifierId]
+  );
+
+  const appliedModifier = useMemo(() => {
+    const id = state.appliedModifierIds.at(-1);
+    if (!id) return null;
+    return (
+      dictionary.variable_vocabulary.distribution.find((modifier) => modifier.id === id) ?? null
+    );
+  }, [state.appliedModifierIds]);
+
+  const activeModifier = selectedModifier ?? appliedModifier;
+  const latestEvent = state.history.at(-1);
 
   const progressPercent = (currentNode.order / dictionary.core_spine.length) * 100;
   const isComplete = state.currentNodeId === rules.run.target_node;
@@ -93,20 +115,24 @@ const App = () => {
     setSelectedCombinationId("");
     setSelectedModifierId("");
     setReflectionDraft("");
+    setMobileTab("controls");
   };
 
   return (
     <div className="journey-app">
-      <header className="journey-header">
-        <p className="kicker">3D Journey Mode</p>
+      <header className="journey-header compact">
+        <p className="kicker">Journey Step {currentNode.order}/{dictionary.core_spine.length}</p>
         <h1>
-          Thought -&gt; Networked Thought -&gt; Text -&gt; Audio -&gt; Images -&gt;
-          Moving Images (No Audio) -&gt; Moving Images (With Audio) -&gt; Website
-          -&gt; Product -&gt; Solution -&gt; Protocol -&gt; Math
+          {currentNode.label} {nextNode ? "->" : ""} {nextNode ? nextNode.label : "Complete: Math"}
         </h1>
-        <p>
-          Traverse one legal step at a time. Click the glowing next node in the scene or use Advance.
-        </p>
+        <p>{currentNode.description}</p>
+        <div className="status-chips">
+          <span>Progress {Math.round(progressPercent)}%</span>
+          <span>Camera {cameraMode}</span>
+          <span>{selectedCombination ? `Combo Preview: ${selectedCombination.label}` : "No combo preview"}</span>
+          <span>{activeModifier ? `Modifier Field: ${activeModifier.label}` : "No modifier field"}</span>
+          <span>{latestEvent ? `Latest: ${latestEvent.detail}` : "Latest: no move yet"}</span>
+        </div>
       </header>
 
       <main className="journey-layout">
@@ -118,72 +144,51 @@ const App = () => {
             visitedNodeIds={state.visitedNodeIds}
             craftedCombinationIds={state.craftedCombinationIds}
             availableCombinationIds={availableCombinations.map((combo) => combo.id)}
+            selectedCombinationId={selectedCombinationId}
+            selectedModifierId={selectedModifierId}
+            appliedModifierIds={state.appliedModifierIds}
             cameraMode={cameraMode}
             onAdvance={handleAdvance}
           />
           <div className="scene-hud">
             <span>Current: {currentNode.label}</span>
-            <span>{Math.round(progressPercent)}% complete</span>
-            <span>Camera: {cameraMode}</span>
+            <span>Next: {nextNode ? nextNode.label : "Done"}</span>
+            <span>Shortcut: Space / Right Arrow</span>
           </div>
         </section>
 
-        <aside className="journey-panel">
-          <section className="panel-card">
-            <p className="card-label">Step</p>
-            <h2>{currentNode.label}</h2>
-            <p className="card-copy">{currentNode.description}</p>
-            <div className="progress-track">
-              <span style={{ width: `${progressPercent}%` }} />
-            </div>
-            <p className="next-node">
-              Next: {nextNode ? nextNode.label : "Journey Complete"}
-            </p>
+        <aside className={`journey-panel mobile-${mobileTab}`}>
+          <div className="mobile-tabs">
+            <button onClick={() => setMobileTab("controls")} className={mobileTab === "controls" ? "active" : ""}>
+              Controls
+            </button>
+            <button onClick={() => setMobileTab("impact")} className={mobileTab === "impact" ? "active" : ""}>
+              Impact
+            </button>
+            <button onClick={() => setMobileTab("log")} className={mobileTab === "log" ? "active" : ""}>
+              Log
+            </button>
+          </div>
+
+          <section className="panel-card controls-card">
+            <p className="card-label">Action</p>
             <button onClick={handleAdvance} disabled={!canAdvance} className="primary-btn">
               {isComplete ? "Reached Math" : "Advance One Step"}
             </button>
-            <p className="micro-note">
-              Keyboard shortcut: <strong>Space</strong> or <strong>Right Arrow</strong>
-            </p>
             <button
-              onClick={() =>
-                setCameraMode((prev) => (prev === "guided" ? "explore" : "guided"))
-              }
+              onClick={() => setCameraMode((prev) => (prev === "guided" ? "explore" : "guided"))}
               className="ghost-btn camera-toggle"
             >
-              {cameraMode === "guided"
-                ? "Switch To Explore Camera"
-                : "Switch To Guided Camera"}
+              {cameraMode === "guided" ? "Switch To Explore Camera" : "Switch To Guided Camera"}
             </button>
-            <p className="micro-note">
-              Explore mode: drag to orbit, scroll to zoom.
-            </p>
-          </section>
+            <p className="micro-note">Explore mode: drag to orbit, scroll to zoom.</p>
 
-          <section className="panel-card">
-            <p className="card-label">Advance Gain/Loss</p>
-            {nextNode ? (
-              <ul className="delta-list">
-                {signalKeys.map((metric) => (
-                  <li key={metric}>
-                    <span>{metric}</span>
-                    <strong>{formatSigned(advanceDelta[metric])}</strong>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="card-copy">You are at Math. No further legal advance.</p>
-            )}
-          </section>
-
-          <section className="panel-card">
-            <p className="card-label">Combinations</p>
             <div className="inline-control">
               <select
                 value={selectedCombinationId}
                 onChange={(event) => setSelectedCombinationId(event.target.value)}
               >
-                <option value="">Select available combination</option>
+                <option value="">Select combination</option>
                 {availableCombinations.map((combo) => (
                   <option key={combo.id} value={combo.id}>
                     {combo.label}
@@ -195,28 +200,19 @@ const App = () => {
               </button>
             </div>
             <p className="micro-note">
-              {availableCombinations.length > 0
-                ? `${availableCombinations.length} available`
-                : "No combinations available yet"}
+              {selectedCombination
+                ? `${selectedCombination.description} | ${getMetricDeltaLabel(selectedCombination.metric_delta)}`
+                : availableCombinations.length > 0
+                  ? `${availableCombinations.length} combinations available`
+                  : "No combinations available yet"}
             </p>
-            {selectedCombinationId && (
-              <p className="micro-note emphasis-note">
-                {
-                  availableCombinations.find((combo) => combo.id === selectedCombinationId)
-                    ?.description
-                }
-              </p>
-            )}
-          </section>
 
-          <section className="panel-card">
-            <p className="card-label">Distribution Modifier</p>
             <div className="inline-control">
               <select
                 value={selectedModifierId}
                 onChange={(event) => setSelectedModifierId(event.target.value)}
               >
-                <option value="">Select modifier</option>
+                <option value="">Select distribution modifier</option>
                 {availableModifiers.map((modifier) => (
                   <option key={modifier.id} value={modifier.id}>
                     {modifier.label}
@@ -227,10 +223,31 @@ const App = () => {
                 Apply
               </button>
             </div>
+            <p className="micro-note">
+              {selectedModifier
+                ? `Previewing modifier: ${selectedModifier.label} | ${getMetricDeltaLabel(selectedModifier.metric_delta)}`
+                : appliedModifier
+                  ? `Applied modifier: ${appliedModifier.label}`
+                  : "No modifier selected"}
+            </p>
           </section>
 
-          <section className="panel-card">
-            <p className="card-label">Reflection</p>
+          <section className="panel-card impact-card">
+            <p className="card-label">Impact</p>
+            <p className="next-node">Advance Delta ({currentNode.label} -&gt; {nextNode?.label ?? "Complete"})</p>
+            <ul className="delta-list">
+              {signalKeys.map((metric) => (
+                <li key={metric}>
+                  <span>{metric}</span>
+                  <strong>{formatSigned(advanceDelta[metric])}</strong>
+                </li>
+              ))}
+            </ul>
+            <p className="micro-note">Current signal: {getMetricDeltaLabel(currentSignal)}</p>
+          </section>
+
+          <section className="panel-card log-card">
+            <p className="card-label">Reflection + Log</p>
             <div className="inline-control stacked">
               <input
                 value={reflectionDraft}
@@ -241,40 +258,16 @@ const App = () => {
                 Log Reflection
               </button>
             </div>
-          </section>
 
-          <section className="panel-card">
-            <p className="card-label">Live Metrics</p>
-            <div className="metric-mini">
-              {dictionary.axes.map((axis) => (
-                <div key={axis.id} className="metric-mini-row">
-                  <div>
-                    <span>{axis.label}</span>
-                    <strong>{currentAxes[axis.id]}</strong>
-                  </div>
-                  <div className="mini-track">
-                    <span style={{ width: `${currentAxes[axis.id]}%` }} />
-                  </div>
-                </div>
+            <ul className="history-list">
+              {state.history.slice(-5).reverse().map((entry) => (
+                <li key={`${entry.turn}-${entry.detail}`}>
+                  <span>#{entry.turn}</span>
+                  <p>{entry.detail}</p>
+                </li>
               ))}
-            </div>
-            <p className="micro-note">Signal: {getMetricDeltaLabel(currentSignal)}</p>
-          </section>
+            </ul>
 
-          <section className="panel-card">
-            <p className="card-label">Recent Moves</p>
-            {state.history.length === 0 ? (
-              <p className="card-copy">No moves yet.</p>
-            ) : (
-              <ul className="history-list">
-                {state.history.slice(-6).reverse().map((entry) => (
-                  <li key={`${entry.turn}-${entry.detail}`}>
-                    <span>#{entry.turn}</span>
-                    <p>{entry.detail}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
             <button onClick={handleReset} className="ghost-btn">
               Reset Journey
             </button>
