@@ -36,8 +36,8 @@ type TransitionCard = {
 };
 
 const signalKeys: SignalMetric[] = ["fidelity", "persuasion", "reach", "distortion"];
+const lensModes: LensMode[] = ["truth", "persuasion", "distortion"];
 const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
-
 const gateKey = (from: string, to: string) => `${from}->${to}`;
 
 const gateChallenges: Record<string, GateChallenge> = {
@@ -53,7 +53,8 @@ const gateChallenges: Record<string, GateChallenge> = {
     title: "Gate: Solution -> Protocol",
     prompt:
       "Write one governance rule that can be shared across actors. Must include WHEN and MUST.",
-    placeholder: "When quality score drops below X, participants must submit remediation within 48h.",
+    placeholder:
+      "When quality score drops below X, participants must submit remediation within 48h.",
     hint: "Need both 'when' and 'must' in your rule.",
     validate: (answer) => /when/i.test(answer) && /must/i.test(answer),
   },
@@ -71,6 +72,8 @@ const App = () => {
   const [state, setState] = useState<StorytellingRunState>(createInitialState);
   const [cameraMode, setCameraMode] = useState<"guided" | "explore">("guided");
   const [lensMode, setLensMode] = useState<LensMode>("truth");
+  const [splitView, setSplitView] = useState(false);
+  const [compareLens, setCompareLens] = useState<LensMode>("persuasion");
   const [mobileTab, setMobileTab] = useState<"controls" | "impact" | "log">("controls");
   const [selectedCombinationId, setSelectedCombinationId] = useState("");
   const [selectedModifierId, setSelectedModifierId] = useState("");
@@ -83,6 +86,7 @@ const App = () => {
   const [transitionTick, setTransitionTick] = useState(0);
 
   const transitionTimerRef = useRef<number | null>(null);
+
   const currentNode = getNode(state.currentNodeId);
   const nextNodeId = getNextNodeId(state.currentNodeId);
   const canAdvance = Boolean(nextNodeId);
@@ -98,22 +102,34 @@ const App = () => {
   );
 
   const selectedModifier = useMemo(
-    () => dictionary.variable_vocabulary.distribution.find((modifier) => modifier.id === selectedModifierId) ?? null,
+    () =>
+      dictionary.variable_vocabulary.distribution.find(
+        (modifier) => modifier.id === selectedModifierId
+      ) ?? null,
     [selectedModifierId]
   );
 
   const appliedModifier = useMemo(() => {
     const id = state.appliedModifierIds.at(-1);
     if (!id) return null;
-    return dictionary.variable_vocabulary.distribution.find((modifier) => modifier.id === id) ?? null;
+    return (
+      dictionary.variable_vocabulary.distribution.find((modifier) => modifier.id === id) ?? null
+    );
   }, [state.appliedModifierIds]);
 
   const activeModifier = selectedModifier ?? appliedModifier;
   const latestEvent = state.history.at(-1);
   const progressPercent = (currentNode.order / dictionary.core_spine.length) * 100;
   const isComplete = state.currentNodeId === rules.run.target_node;
-
   const pendingGate = pendingGateKey ? gateChallenges[pendingGateKey] ?? null : null;
+
+  const compareLensOptions = lensModes.filter((mode) => mode !== lensMode);
+
+  useEffect(() => {
+    if (compareLens === lensMode) {
+      setCompareLens(lensMode === "truth" ? "persuasion" : "truth");
+    }
+  }, [compareLens, lensMode]);
 
   const clearTransitionTimer = () => {
     if (transitionTimerRef.current) {
@@ -211,7 +227,9 @@ const App = () => {
       return;
     }
 
-    setPassedGateKeys((prev) => (prev.includes(pendingGateKey) ? prev : [...prev, pendingGateKey]));
+    setPassedGateKeys((prev) =>
+      prev.includes(pendingGateKey) ? prev : [...prev, pendingGateKey]
+    );
     setPendingGateKey(null);
     setGateAnswer("");
     setGateError("");
@@ -240,23 +258,40 @@ const App = () => {
           {currentNode.label} {nextNode ? "->" : ""} {nextNode ? nextNode.label : "Complete: Math"}
         </h1>
         <p>{currentNode.description}</p>
+
         <div className="lens-switch">
-          <button onClick={() => setLensMode("truth")} className={lensMode === "truth" ? "active" : ""}>
-            Truth Lens
-          </button>
-          <button
-            onClick={() => setLensMode("persuasion")}
-            className={lensMode === "persuasion" ? "active" : ""}
-          >
-            Persuasion Lens
-          </button>
-          <button
-            onClick={() => setLensMode("distortion")}
-            className={lensMode === "distortion" ? "active" : ""}
-          >
-            Distortion Lens
-          </button>
+          {lensModes.map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setLensMode(mode)}
+              className={lensMode === mode ? "active" : ""}
+            >
+              {mode.charAt(0).toUpperCase() + mode.slice(1)} Lens
+            </button>
+          ))}
         </div>
+
+        <div className="split-controls">
+          <button
+            onClick={() => setSplitView((value) => !value)}
+            className={splitView ? "active" : ""}
+          >
+            {splitView ? "Disable Split View" : "Enable Split View"}
+          </button>
+          {splitView && (
+            <select
+              value={compareLens}
+              onChange={(event) => setCompareLens(event.target.value as LensMode)}
+            >
+              {compareLensOptions.map((mode) => (
+                <option key={mode} value={mode}>
+                  Compare {mode}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+
         <div className="status-chips">
           <span>Progress {Math.round(progressPercent)}%</span>
           <span>Camera {cameraMode}</span>
@@ -267,22 +302,50 @@ const App = () => {
       </header>
 
       <main className="journey-layout">
-        <section className="scene-stage">
-          <SpectrumScene
-            nodes={dictionary.core_spine}
-            currentNodeId={state.currentNodeId}
-            nextNodeId={nextNodeId}
-            visitedNodeIds={state.visitedNodeIds}
-            craftedCombinationIds={state.craftedCombinationIds}
-            availableCombinationIds={availableCombinations.map((combo) => combo.id)}
-            selectedCombinationId={selectedCombinationId}
-            selectedModifierId={selectedModifierId}
-            appliedModifierIds={state.appliedModifierIds}
-            lensMode={lensMode}
-            transitionTick={transitionTick}
-            cameraMode={cameraMode}
-            onAdvance={requestAdvance}
-          />
+        <section className={`scene-stage${splitView ? " split-mode" : ""}`}>
+          <div className={`scene-shell${splitView ? " dual" : ""}`}>
+            <div className="scene-pane primary-pane">
+              {splitView && <div className="pane-badge">Primary • {lensMode}</div>}
+              <SpectrumScene
+                nodes={dictionary.core_spine}
+                currentNodeId={state.currentNodeId}
+                nextNodeId={nextNodeId}
+                visitedNodeIds={state.visitedNodeIds}
+                craftedCombinationIds={state.craftedCombinationIds}
+                availableCombinationIds={availableCombinations.map((combo) => combo.id)}
+                selectedCombinationId={selectedCombinationId}
+                selectedModifierId={selectedModifierId}
+                appliedModifierIds={state.appliedModifierIds}
+                lensMode={lensMode}
+                transitionTick={transitionTick}
+                cameraMode={cameraMode}
+                interactive
+                onAdvance={requestAdvance}
+              />
+            </div>
+
+            {splitView && (
+              <div className="scene-pane compare-pane">
+                <div className="pane-badge">Compare • {compareLens}</div>
+                <SpectrumScene
+                  nodes={dictionary.core_spine}
+                  currentNodeId={state.currentNodeId}
+                  nextNodeId={nextNodeId}
+                  visitedNodeIds={state.visitedNodeIds}
+                  craftedCombinationIds={state.craftedCombinationIds}
+                  availableCombinationIds={availableCombinations.map((combo) => combo.id)}
+                  selectedCombinationId={selectedCombinationId}
+                  selectedModifierId={selectedModifierId}
+                  appliedModifierIds={state.appliedModifierIds}
+                  lensMode={compareLens}
+                  transitionTick={transitionTick}
+                  cameraMode="guided"
+                  interactive={false}
+                  onAdvance={requestAdvance}
+                />
+              </div>
+            )}
+          </div>
 
           {transitionCard && (
             <div className="transition-card">
@@ -306,13 +369,22 @@ const App = () => {
 
         <aside className={`journey-panel mobile-${mobileTab}`}>
           <div className="mobile-tabs">
-            <button onClick={() => setMobileTab("controls")} className={mobileTab === "controls" ? "active" : ""}>
+            <button
+              onClick={() => setMobileTab("controls")}
+              className={mobileTab === "controls" ? "active" : ""}
+            >
               Controls
             </button>
-            <button onClick={() => setMobileTab("impact")} className={mobileTab === "impact" ? "active" : ""}>
+            <button
+              onClick={() => setMobileTab("impact")}
+              className={mobileTab === "impact" ? "active" : ""}
+            >
               Impact
             </button>
-            <button onClick={() => setMobileTab("log")} className={mobileTab === "log" ? "active" : ""}>
+            <button
+              onClick={() => setMobileTab("log")}
+              className={mobileTab === "log" ? "active" : ""}
+            >
               Log
             </button>
           </div>

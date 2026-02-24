@@ -19,6 +19,7 @@ type SpectrumSceneProps = {
   lensMode: LensMode;
   transitionTick: number;
   cameraMode: "guided" | "explore";
+  interactive?: boolean;
   onAdvance: () => void;
 };
 
@@ -31,6 +32,17 @@ type LinkRef = {
 type ComboVisual = {
   line: THREE.Line;
   marker: THREE.Mesh;
+};
+
+type ArtifactBirthEffect = {
+  comboId: string;
+  startedAt: number;
+  durationMs: number;
+  group: THREE.Group;
+  core: THREE.Mesh;
+  ring: THREE.Mesh;
+  sparks: THREE.Points;
+  label: THREE.Sprite;
 };
 
 type SceneRefs = {
@@ -50,6 +62,7 @@ type SceneRefs = {
   auraRing: THREE.Mesh;
   ambient: THREE.AmbientLight;
   floorMaterial: THREE.MeshStandardMaterial;
+  birthEffects: Map<string, ArtifactBirthEffect>;
   frameId: number;
   cleanupResize: () => void;
   cleanupPointer: () => void;
@@ -111,6 +124,11 @@ const modifierPalette: Record<string, number> = {
   community: 0xb28cff,
   paid: 0xffb56b,
 };
+
+const combinationsById = new Map(dictionary.combination_layer.map((combo) => [combo.id, combo]));
+const artifactLabelsById = new Map(
+  dictionary.extended_artifacts.map((artifact) => [artifact.id, artifact.label])
+);
 
 const map = (value: number, inMin: number, inMax: number, outMin: number, outMax: number) => {
   const ratio = (value - inMin) / (inMax - inMin);
@@ -221,23 +239,108 @@ const createComboVisual = (
   return { line, marker };
 };
 
-const disposeScene = (scene: THREE.Scene) => {
-  scene.traverse((object: THREE.Object3D) => {
-    if (object instanceof THREE.Mesh || object instanceof THREE.Line) {
-      object.geometry.dispose();
-      const material = object.material;
-      if (Array.isArray(material)) {
-        material.forEach((entry) => entry.dispose());
-      } else {
-        material.dispose();
-      }
+const disposeObjectResources = (object: THREE.Object3D) => {
+  if (object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points) {
+    object.geometry.dispose();
+    const material = object.material;
+    if (Array.isArray(material)) {
+      material.forEach((entry) => entry.dispose());
+    } else {
+      material.dispose();
     }
+  }
 
-    if (object instanceof THREE.Sprite) {
-      if (object.material.map) object.material.map.dispose();
-      object.material.dispose();
-    }
-  });
+  if (object instanceof THREE.Sprite) {
+    if (object.material.map) object.material.map.dispose();
+    object.material.dispose();
+  }
+};
+
+const disposeScene = (scene: THREE.Scene) => {
+  scene.traverse(disposeObjectResources);
+};
+
+const removeBirthEffect = (scene: THREE.Scene, effect: ArtifactBirthEffect) => {
+  scene.remove(effect.group);
+  effect.group.traverse(disposeObjectResources);
+};
+
+const createBirthEffect = (
+  comboId: string,
+  origin: THREE.Vector3,
+  color: number
+): ArtifactBirthEffect | null => {
+  const combo = combinationsById.get(comboId);
+  if (!combo) return null;
+
+  const artifactLabel = artifactLabelsById.get(combo.output) ?? combo.output;
+
+  const group = new THREE.Group();
+  group.position.copy(origin);
+
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.13, 20, 20),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 1.2,
+      roughness: 0.26,
+      metalness: 0.16,
+      transparent: true,
+      opacity: 0.95,
+    })
+  );
+  group.add(core);
+
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.34, 0.03, 16, 44),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.74,
+    })
+  );
+  ring.rotation.x = Math.PI / 2;
+  group.add(ring);
+
+  const sparkPoints: number[] = [];
+  for (let index = 0; index < 42; index += 1) {
+    const angle = (index / 42) * Math.PI * 2;
+    const radius = 0.24 + Math.random() * 0.18;
+    const y = (Math.random() - 0.5) * 0.24;
+    sparkPoints.push(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+  }
+  const sparks = new THREE.Points(
+    new THREE.BufferGeometry().setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(sparkPoints, 3)
+    ),
+    new THREE.PointsMaterial({
+      color,
+      size: 0.06,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
+  );
+  group.add(sparks);
+
+  const label = createTextSprite(`Artifact: ${artifactLabel}`, "#ffe9b9", 20);
+  label.scale.multiplyScalar(0.72);
+  label.position.set(0, 0.9, 0);
+  (label.material as THREE.SpriteMaterial).opacity = 0.96;
+  group.add(label);
+
+  return {
+    comboId,
+    startedAt: performance.now(),
+    durationMs: 1350,
+    group,
+    core,
+    ring,
+    sparks,
+    label,
+  };
 };
 
 const SpectrumScene = ({
@@ -253,6 +356,7 @@ const SpectrumScene = ({
   lensMode,
   transitionTick,
   cameraMode,
+  interactive = true,
   onAdvance,
 }: SpectrumSceneProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -261,7 +365,9 @@ const SpectrumScene = ({
   const onAdvanceRef = useRef(onAdvance);
   const nextNodeIdRef = useRef<string | null>(nextNodeId);
   const cameraModeRef = useRef<"guided" | "explore">(cameraMode);
+  const interactiveRef = useRef(interactive);
   const selectedCombinationRef = useRef(selectedCombinationId);
+  const craftedCombinationsRef = useRef(craftedCombinationIds);
   const transitionUntilRef = useRef(0);
 
   const safeVisited = useMemo(() => new Set(visitedNodeIds), [visitedNodeIds]);
@@ -279,6 +385,10 @@ const SpectrumScene = ({
   useEffect(() => {
     cameraModeRef.current = cameraMode;
   }, [cameraMode]);
+
+  useEffect(() => {
+    interactiveRef.current = interactive;
+  }, [interactive]);
 
   useEffect(() => {
     selectedCombinationRef.current = selectedCombinationId;
@@ -316,7 +426,7 @@ const SpectrumScene = ({
     controls.maxDistance = 34;
     controls.minPolarAngle = 0.25;
     controls.maxPolarAngle = 1.46;
-    controls.enabled = cameraModeRef.current === "explore";
+    controls.enabled = interactiveRef.current && cameraModeRef.current === "explore";
 
     const ambient = new THREE.AmbientLight(lens.ambient, 0.62);
     scene.add(ambient);
@@ -469,7 +579,7 @@ const SpectrumScene = ({
     window.addEventListener("resize", onResize);
 
     const onSceneClick = (event: MouseEvent) => {
-      if (!nextNodeIdRef.current) return;
+      if (!interactiveRef.current || !nextNodeIdRef.current) return;
 
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -509,6 +619,7 @@ const SpectrumScene = ({
       auraRing,
       ambient,
       floorMaterial,
+      birthEffects: new Map<string, ArtifactBirthEffect>(),
       frameId: 0,
       cleanupResize: () => window.removeEventListener("resize", onResize),
       cleanupPointer: () => renderer.domElement.removeEventListener("click", onSceneClick),
@@ -540,6 +651,36 @@ const SpectrumScene = ({
         }
       });
 
+      const now = performance.now();
+      stateRef.birthEffects.forEach((effect, comboId) => {
+        const progress = (now - effect.startedAt) / effect.durationMs;
+        if (progress >= 1) {
+          removeBirthEffect(stateRef.scene, effect);
+          stateRef.birthEffects.delete(comboId);
+          return;
+        }
+
+        const eased = 1 - (1 - progress) * (1 - progress);
+
+        effect.ring.scale.setScalar(0.9 + eased * 4.6);
+        effect.ring.rotation.z += 0.038;
+        const ringMaterial = effect.ring.material as THREE.MeshBasicMaterial;
+        ringMaterial.opacity = 0.78 * (1 - progress);
+
+        effect.core.scale.setScalar(1 + Math.sin(progress * Math.PI) * 0.85);
+        const coreMaterial = effect.core.material as THREE.MeshStandardMaterial;
+        coreMaterial.opacity = 0.94 - progress * 0.36;
+        coreMaterial.emissiveIntensity = 1.26 - progress * 0.58;
+
+        effect.sparks.scale.setScalar(1 + eased * 2.8);
+        const sparksMaterial = effect.sparks.material as THREE.PointsMaterial;
+        sparksMaterial.opacity = 0.9 * (1 - progress);
+
+        effect.label.position.y = 0.9 + eased * 1.18;
+        const labelMaterial = effect.label.material as THREE.SpriteMaterial;
+        labelMaterial.opacity = 0.96 * (1 - progress);
+      });
+
       if (cameraModeRef.current === "guided") {
         stateRef.controls.enabled = false;
         stateRef.controls.target.lerp(stateRef.targetPosition, isTransitioning ? 0.25 : 0.15);
@@ -551,7 +692,7 @@ const SpectrumScene = ({
         stateRef.camera.updateProjectionMatrix();
         stateRef.controls.update();
       } else {
-        stateRef.controls.enabled = true;
+        stateRef.controls.enabled = interactiveRef.current;
         stateRef.controls.update();
       }
 
@@ -573,6 +714,34 @@ const SpectrumScene = ({
       refs.current = null;
     };
   }, [nodes]);
+
+  useEffect(() => {
+    const sceneRefs = refs.current;
+    const previousCrafted = new Set(craftedCombinationsRef.current);
+    const newlyCrafted = craftedCombinationIds.filter((comboId) => !previousCrafted.has(comboId));
+    craftedCombinationsRef.current = [...craftedCombinationIds];
+
+    if (!sceneRefs || newlyCrafted.length === 0) return;
+
+    const comboColor = lensPalettes[lensMode].comboCrafted;
+    newlyCrafted.forEach((comboId) => {
+      const marker = sceneRefs.comboVisuals.get(comboId)?.marker;
+      const spawnPoint = marker?.position;
+      if (!spawnPoint) return;
+
+      const existing = sceneRefs.birthEffects.get(comboId);
+      if (existing) {
+        removeBirthEffect(sceneRefs.scene, existing);
+        sceneRefs.birthEffects.delete(comboId);
+      }
+
+      const effect = createBirthEffect(comboId, spawnPoint, comboColor);
+      if (!effect) return;
+
+      sceneRefs.scene.add(effect.group);
+      sceneRefs.birthEffects.set(comboId, effect);
+    });
+  }, [craftedCombinationIds, lensMode]);
 
   useEffect(() => {
     const sceneRefs = refs.current;
@@ -614,14 +783,15 @@ const SpectrumScene = ({
       const crafted = safeCrafted.has(comboId);
       const selected = comboId === selectedCombinationId;
       const available = safeAvailable.has(comboId);
+      const birthing = sceneRefs.birthEffects.has(comboId);
 
       if (crafted) {
         setLineColor(line, lens.comboCrafted, 0.93);
         marker.visible = true;
-        marker.scale.setScalar(1.1);
+        marker.scale.setScalar(birthing ? 1.36 : 1.1);
         const material = marker.material as THREE.MeshStandardMaterial;
         material.color.setHex(lens.comboCrafted);
-        material.emissive.setHex(0x6a521b);
+        material.emissive.setHex(birthing ? 0xb2711f : 0x6a521b);
         material.opacity = 0.95;
       } else if (selected) {
         setLineColor(line, lens.comboSelected, 0.9);

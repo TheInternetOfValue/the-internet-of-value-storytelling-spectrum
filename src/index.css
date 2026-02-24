@@ -94,6 +94,33 @@ h2,
   box-shadow: 0 0 0 1px rgba(94, 231, 206, 0.2) inset;
 }
 
+.split-controls {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.split-controls button,
+.split-controls select {
+  border: 1px solid rgba(137, 196, 208, 0.3);
+  border-radius: 999px;
+  background: rgba(8, 22, 30, 0.62);
+  color: var(--ink-2);
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.78rem;
+}
+
+.split-controls button {
+  cursor: pointer;
+}
+
+.split-controls button.active {
+  color: var(--accent);
+  border-color: rgba(94, 231, 206, 0.48);
+}
+
 .status-chips {
   margin-top: 8px;
   display: flex;
@@ -126,10 +153,57 @@ h2,
   background: #07131a;
 }
 
+.scene-shell {
+  width: 100%;
+  height: 100%;
+}
+
+.scene-shell.dual {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px;
+}
+
+.scene-pane {
+  position: relative;
+  min-height: 620px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(137, 196, 208, 0.12);
+}
+
+.scene-shell.dual .scene-pane {
+  min-height: 560px;
+}
+
+.pane-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  border: 1px solid rgba(152, 219, 227, 0.3);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-1);
+  background: rgba(7, 22, 29, 0.86);
+}
+
+.compare-pane {
+  border-color: rgba(255, 205, 129, 0.24);
+}
+
 .spectrum-canvas {
   width: 100%;
   height: 100%;
   min-height: 620px;
+}
+
+.scene-shell.dual .spectrum-canvas {
+  min-height: 560px;
 }
 
 .transition-card {
@@ -404,8 +478,16 @@ h2,
     min-height: auto;
   }
 
+  .scene-shell.dual {
+    grid-template-columns: 1fr;
+    padding: 6px;
+  }
+
   .scene-stage,
-  .spectrum-canvas {
+  .scene-pane,
+  .spectrum-canvas,
+  .scene-shell.dual .scene-pane,
+  .scene-shell.dual .spectrum-canvas {
     min-height: 520px;
   }
 }
@@ -434,8 +516,16 @@ h2,
     grid-template-columns: 1fr;
   }
 
+  .split-controls {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
   .scene-stage,
-  .spectrum-canvas {
+  .scene-pane,
+  .spectrum-canvas,
+  .scene-shell.dual .scene-pane,
+  .scene-shell.dual .spectrum-canvas {
     min-height: 52vh;
   }
 
