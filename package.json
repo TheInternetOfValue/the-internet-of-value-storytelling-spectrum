@@ -1,27 +1,23 @@
 {
-  "name": "threejs-2d-puzzle",
+  "name": "storytelling-spectrum-playground",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview",
-    "test": "vitest"
+    "preview": "vite preview"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "three": "^0.166.1"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@types/node": "^20.14.9",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "jsdom": "^27.4.0",
     "typescript": "^5.6.2",
-    "vite": "^5.4.6",
-    "vitest": "^2.1.1"
+    "vite": "^5.4.6"
   }
 }

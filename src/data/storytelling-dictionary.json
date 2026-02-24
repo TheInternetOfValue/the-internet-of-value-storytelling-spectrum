@@ -1,0 +1,448 @@
+{
+  "name": "Storytelling Dictionary",
+  "version": "1.0.0",
+  "principles": [
+    "Add-only evolution: entries can be added, but core entries are not removed.",
+    "No skipping across the core spine.",
+    "One move at a time: transformation is experienced step-by-step.",
+    "Each move must show both gains and losses."
+  ],
+  "axes": [
+    {
+      "id": "sensory_activation",
+      "label": "Degree of Sensory Activation",
+      "description": "How many senses/channels are activated by the format."
+    },
+    {
+      "id": "ease_of_consumption",
+      "label": "Ease of Consumption",
+      "description": "How easy and fast the format is for audience consumption."
+    },
+    {
+      "id": "creation_effort",
+      "label": "Creation Effort",
+      "description": "How much production energy is required to create the format."
+    },
+    {
+      "id": "bias_perception_load",
+      "label": "Biases / Perceptions / Bullshit",
+      "description": "How much interpretation, status signaling, and charisma can shape perception."
+    },
+    {
+      "id": "storytelling_effectiveness",
+      "label": "Effectiveness of Storytelling",
+      "description": "How effective the format can be in transmitting and mobilizing an idea."
+    }
+  ],
+  "core_spine": [
+    {
+      "id": "thought",
+      "label": "Thought",
+      "order": 1,
+      "description": "Raw internal creation signal before packaging.",
+      "examples": ["Daily conversation", "Internal intuition"],
+      "axis_values": {
+        "sensory_activation": 8,
+        "ease_of_consumption": 12,
+        "creation_effort": 10,
+        "bias_perception_load": 8,
+        "storytelling_effectiveness": 18
+      },
+      "signal_profile": {
+        "fidelity": 92,
+        "persuasion": 20,
+        "reach": 8,
+        "distortion": 8
+      }
+    },
+    {
+      "id": "networked_thought",
+      "label": "Networked Thought",
+      "order": 2,
+      "description": "Thought externalized into notes/rough drafts and linked context.",
+      "examples": ["Notes", "Rough draft", "Roam Research"],
+      "axis_values": {
+        "sensory_activation": 16,
+        "ease_of_consumption": 22,
+        "creation_effort": 18,
+        "bias_perception_load": 12,
+        "storytelling_effectiveness": 28
+      },
+      "signal_profile": {
+        "fidelity": 88,
+        "persuasion": 28,
+        "reach": 16,
+        "distortion": 12
+      }
+    },
+    {
+      "id": "text_structured",
+      "label": "Text (Structured)",
+      "order": 3,
+      "description": "Ideas organized into language structures and arguments.",
+      "examples": ["Books", "Articles", "Medium"],
+      "axis_values": {
+        "sensory_activation": 24,
+        "ease_of_consumption": 36,
+        "creation_effort": 32,
+        "bias_perception_load": 22,
+        "storytelling_effectiveness": 40
+      },
+      "signal_profile": {
+        "fidelity": 80,
+        "persuasion": 40,
+        "reach": 34,
+        "distortion": 22
+      }
+    },
+    {
+      "id": "audio",
+      "label": "Audio",
+      "order": 4,
+      "description": "Voice-driven transmission that adds tone and cadence.",
+      "examples": ["Podcasts", "Voice notes"],
+      "axis_values": {
+        "sensory_activation": 40,
+        "ease_of_consumption": 50,
+        "creation_effort": 42,
+        "bias_perception_load": 34,
+        "storytelling_effectiveness": 54
+      },
+      "signal_profile": {
+        "fidelity": 74,
+        "persuasion": 56,
+        "reach": 50,
+        "distortion": 30
+      }
+    },
+    {
+      "id": "images",
+      "label": "Images",
+      "order": 5,
+      "description": "Static visual packaging of the idea.",
+      "examples": ["Photos", "Graphs", "Instagram"],
+      "axis_values": {
+        "sensory_activation": 56,
+        "ease_of_consumption": 62,
+        "creation_effort": 48,
+        "bias_perception_load": 42,
+        "storytelling_effectiveness": 62
+      },
+      "signal_profile": {
+        "fidelity": 70,
+        "persuasion": 62,
+        "reach": 60,
+        "distortion": 38
+      }
+    },
+    {
+      "id": "moving_images_without_audio",
+      "label": "Moving Images (Without Audio)",
+      "order": 6,
+      "description": "Motion carries meaning and attention without voice/sound.",
+      "examples": ["GIFs", "Timelapse", "Giphy"],
+      "axis_values": {
+        "sensory_activation": 70,
+        "ease_of_consumption": 72,
+        "creation_effort": 62,
+        "bias_perception_load": 52,
+        "storytelling_effectiveness": 72
+      },
+      "signal_profile": {
+        "fidelity": 66,
+        "persuasion": 70,
+        "reach": 70,
+        "distortion": 46
+      }
+    },
+    {
+      "id": "moving_images_with_audio",
+      "label": "Moving Images (With Audio)",
+      "order": 7,
+      "description": "Full audiovisual packaging with strong narrative pull.",
+      "examples": ["Short videos", "Netflix"],
+      "axis_values": {
+        "sensory_activation": 86,
+        "ease_of_consumption": 82,
+        "creation_effort": 76,
+        "bias_perception_load": 66,
+        "storytelling_effectiveness": 84
+      },
+      "signal_profile": {
+        "fidelity": 60,
+        "persuasion": 82,
+        "reach": 82,
+        "distortion": 58
+      }
+    },
+    {
+      "id": "website",
+      "label": "Website",
+      "order": 8,
+      "description": "Interactive container that can combine multiple storytelling forms.",
+      "examples": ["Landing page", "Interactive explainer"],
+      "axis_values": {
+        "sensory_activation": 78,
+        "ease_of_consumption": 76,
+        "creation_effort": 84,
+        "bias_perception_load": 68,
+        "storytelling_effectiveness": 86
+      },
+      "signal_profile": {
+        "fidelity": 64,
+        "persuasion": 78,
+        "reach": 80,
+        "distortion": 60
+      }
+    },
+    {
+      "id": "product",
+      "label": "Product",
+      "order": 9,
+      "description": "Operationalized behavior where users repeatedly interact with the idea.",
+      "examples": ["Apps", "Tools", "Platforms"],
+      "axis_values": {
+        "sensory_activation": 80,
+        "ease_of_consumption": 78,
+        "creation_effort": 90,
+        "bias_perception_load": 70,
+        "storytelling_effectiveness": 90
+      },
+      "signal_profile": {
+        "fidelity": 68,
+        "persuasion": 84,
+        "reach": 86,
+        "distortion": 62
+      }
+    },
+    {
+      "id": "solution",
+      "label": "Solution",
+      "order": 10,
+      "description": "Measured problem resolution, not just narrative packaging.",
+      "examples": ["Validated outcomes", "Observed user delta"],
+      "axis_values": {
+        "sensory_activation": 74,
+        "ease_of_consumption": 70,
+        "creation_effort": 92,
+        "bias_perception_load": 58,
+        "storytelling_effectiveness": 92
+      },
+      "signal_profile": {
+        "fidelity": 78,
+        "persuasion": 76,
+        "reach": 74,
+        "distortion": 48
+      }
+    },
+    {
+      "id": "protocol",
+      "label": "Protocol",
+      "order": 11,
+      "description": "Shared rules/specification layer for coordination beyond one product.",
+      "examples": ["Standards", "Open specs", "Coordination rules"],
+      "axis_values": {
+        "sensory_activation": 46,
+        "ease_of_consumption": 52,
+        "creation_effort": 94,
+        "bias_perception_load": 36,
+        "storytelling_effectiveness": 88
+      },
+      "signal_profile": {
+        "fidelity": 86,
+        "persuasion": 62,
+        "reach": 62,
+        "distortion": 28
+      }
+    },
+    {
+      "id": "math",
+      "label": "Math",
+      "order": 12,
+      "description": "Formal constraint language with minimal charisma dependency.",
+      "examples": ["Equations", "Proofs", "Formal models"],
+      "axis_values": {
+        "sensory_activation": 22,
+        "ease_of_consumption": 34,
+        "creation_effort": 96,
+        "bias_perception_load": 16,
+        "storytelling_effectiveness": 82
+      },
+      "signal_profile": {
+        "fidelity": 94,
+        "persuasion": 44,
+        "reach": 40,
+        "distortion": 14
+      }
+    }
+  ],
+  "combination_layer": [
+    {
+      "id": "text_plus_images",
+      "label": "Text + Images",
+      "inputs": ["text_structured", "images"],
+      "output": "meme_infographic",
+      "description": "Narrative compression into highly shareable visual-text payload.",
+      "metric_delta": {
+        "fidelity": -4,
+        "persuasion": 10,
+        "reach": 12,
+        "distortion": 8
+      }
+    },
+    {
+      "id": "images_plus_audio",
+      "label": "Images + Audio",
+      "inputs": ["images", "audio"],
+      "output": "narrated_visual",
+      "description": "Visual framing with voice guidance.",
+      "metric_delta": {
+        "fidelity": -3,
+        "persuasion": 9,
+        "reach": 8,
+        "distortion": 7
+      }
+    },
+    {
+      "id": "moving_images_no_audio_plus_audio",
+      "label": "Moving Images (No Audio) + Audio",
+      "inputs": ["moving_images_without_audio", "audio"],
+      "output": "moving_images_with_audio",
+      "description": "Constructs full audiovisual storytelling from motion and sound layers.",
+      "metric_delta": {
+        "fidelity": -2,
+        "persuasion": 8,
+        "reach": 7,
+        "distortion": 6
+      }
+    },
+    {
+      "id": "video_text_tasks",
+      "label": "Video + Text + Tasks",
+      "inputs": ["moving_images_with_audio", "text_structured", "website"],
+      "output": "recorded_course",
+      "description": "Turns content into asynchronous learning structure.",
+      "metric_delta": {
+        "fidelity": 3,
+        "persuasion": 6,
+        "reach": 5,
+        "distortion": 1
+      }
+    },
+    {
+      "id": "recorded_plus_live_qna",
+      "label": "Recorded Course + Live Q&A",
+      "inputs": ["recorded_course", "audio"],
+      "output": "live_course",
+      "description": "Adds synchronous adaptation and clarification loops.",
+      "metric_delta": {
+        "fidelity": 6,
+        "persuasion": 4,
+        "reach": 3,
+        "distortion": -2
+      }
+    },
+    {
+      "id": "live_course_plus_practice",
+      "label": "Live Course + Practice + Feedback",
+      "inputs": ["live_course", "product", "solution"],
+      "output": "workshop",
+      "description": "Highest interaction depth: co-creation and execution.",
+      "metric_delta": {
+        "fidelity": 8,
+        "persuasion": 2,
+        "reach": -2,
+        "distortion": -5
+      }
+    },
+    {
+      "id": "moving_images_with_audio_at_scale",
+      "label": "Moving Images (With Audio) + Distribution",
+      "inputs": ["moving_images_with_audio", "website"],
+      "output": "movie",
+      "description": "Industrialized audiovisual narrative distribution.",
+      "metric_delta": {
+        "fidelity": -5,
+        "persuasion": 12,
+        "reach": 15,
+        "distortion": 9
+      }
+    }
+  ],
+  "extended_artifacts": [
+    {
+      "id": "meme_infographic",
+      "label": "Meme / Infographic",
+      "category": "combination"
+    },
+    {
+      "id": "narrated_visual",
+      "label": "Narrated Visual",
+      "category": "combination"
+    },
+    {
+      "id": "recorded_course",
+      "label": "Recorded Course",
+      "category": "learning"
+    },
+    {
+      "id": "live_course",
+      "label": "Live Course",
+      "category": "learning"
+    },
+    {
+      "id": "workshop",
+      "label": "Workshop",
+      "category": "learning"
+    },
+    {
+      "id": "movie",
+      "label": "Movie",
+      "category": "distribution"
+    }
+  ],
+  "variable_vocabulary": {
+    "distribution": [
+      {
+        "id": "feed",
+        "label": "Feed",
+        "metric_delta": { "fidelity": -4, "persuasion": 6, "reach": 10, "distortion": 7 }
+      },
+      {
+        "id": "search",
+        "label": "Search",
+        "metric_delta": { "fidelity": 4, "persuasion": 1, "reach": 6, "distortion": -2 }
+      },
+      {
+        "id": "direct",
+        "label": "Direct",
+        "metric_delta": { "fidelity": 3, "persuasion": 2, "reach": 1, "distortion": -1 }
+      },
+      {
+        "id": "community",
+        "label": "Community",
+        "metric_delta": { "fidelity": 2, "persuasion": 4, "reach": 5, "distortion": 1 }
+      },
+      {
+        "id": "paid",
+        "label": "Paid",
+        "metric_delta": { "fidelity": -2, "persuasion": 7, "reach": 9, "distortion": 4 }
+      }
+    ],
+    "interaction_depth": [
+      "passive",
+      "reactive",
+      "interactive",
+      "co_creative",
+      "executive"
+    ],
+    "verification_proof": ["claim_strength", "evidence_quality", "replicability"],
+    "authority_signals": ["status_signal", "capital_signal", "institution_signal"],
+    "translation_loss": ["language_shift", "cultural_shift", "compression_loss"],
+    "temporal_dynamics": ["shelf_life", "update_latency", "staleness_risk"],
+    "adoption_friction": ["time_to_consume", "time_to_apply", "time_to_verify"],
+    "outcome_validation": ["problem_resolved", "user_delta", "durability"],
+    "governance_bridge": ["specification", "standardization", "formalization"],
+    "dynamics": ["feedback_loops", "co_creation_paths"]
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "name": "Storytelling Spectrum Rules",
+  "version": "1.0.0",
+  "run": {
+    "start_node": "thought",
+    "target_node": "math",
+    "allow_skips": false,
+    "allow_reverse": false,
+    "step_mode": "one_move_at_a_time"
+  },
+  "progression_edges": [
+    ["thought", "networked_thought"],
+    ["networked_thought", "text_structured"],
+    ["text_structured", "audio"],
+    ["audio", "images"],
+    ["images", "moving_images_without_audio"],
+    ["moving_images_without_audio", "moving_images_with_audio"],
+    ["moving_images_with_audio", "website"],
+    ["website", "product"],
+    ["product", "solution"],
+    ["solution", "protocol"],
+    ["protocol", "math"]
+  ],
+  "actions": [
+    {
+      "id": "advance_one_step",
+      "label": "Advance One Step",
+      "description": "Move from current node to the immediate next node in the core spine."
+    },
+    {
+      "id": "craft_combination",
+      "label": "Craft Combination",
+      "description": "Combine unlocked nodes/artifacts using declared recipes."
+    },
+    {
+      "id": "apply_distribution_modifier",
+      "label": "Apply Distribution Modifier",
+      "description": "Apply one distribution context to simulate channel effects."
+    },
+    {
+      "id": "reflect_step",
+      "label": "Reflect Step",
+      "description": "Capture what was gained and what was lost in this move."
+    }
+  ],
+  "unlock_logic": {
+    "combination_unlocked_when_all_inputs_visited_or_crafted": true,
+    "combination_can_only_be_crafted_once": true,
+    "modifier_can_only_be_applied_once": true
+  },
+  "scoring": {
+    "tracked_metrics": ["fidelity", "persuasion", "reach", "distortion"],
+    "calculation": "current_node.signal_profile + crafted_combination_deltas + applied_modifier_deltas",
+    "range": { "min": 0, "max": 100 }
+  },
+  "win_condition": {
+    "required_node": "math",
+    "required_history_min_steps": 11,
+    "description": "Arrive at Math through legal one-step progression."
+  }
+}
