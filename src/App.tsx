@@ -15,7 +15,13 @@ import {
   getNextNodeId,
   getNode,
   resetRun,
+  rules,
 } from "@/lib/storytellingGame";
+import {
+  getProjectLinks,
+  getProjectResourceLabel,
+  projectProfile,
+} from "@/lib/projectProfile";
 import type {
   ActionFocusAnchor,
   DistributionModifier,
@@ -107,6 +113,8 @@ const App = () => {
   const [state, setState] = useState<StorytellingRunState>(createInitialState);
   const [selectedCombinationId, setSelectedCombinationId] = useState("");
   const [selectedModifierId, setSelectedModifierId] = useState("");
+  const [activeResourceKey, setActiveResourceKey] = useState(rules.run.start_node);
+  const [resourceAnchor, setResourceAnchor] = useState<ActionFocusAnchor | null>(null);
   const [passedGateKeys, setPassedGateKeys] = useState<string[]>([]);
   const [pendingGateKey, setPendingGateKey] = useState<string | null>(null);
   const [gateAnswer, setGateAnswer] = useState("");
@@ -164,6 +172,14 @@ const App = () => {
   const pendingGate = pendingGateKey ? gateChallenges[pendingGateKey] ?? null : null;
   const activeDistribution = selectedModifier ?? appliedModifier;
   const activeDistributionImpact = selectedModifierImpact ?? appliedModifierImpact;
+  const activeResourceLinks = useMemo(
+    () => getProjectLinks(activeResourceKey),
+    [activeResourceKey]
+  );
+  const activeResourceLabel = useMemo(
+    () => getProjectResourceLabel(activeResourceKey),
+    [activeResourceKey]
+  );
 
   const clearImpactDismissTimer = useCallback(() => {
     if (impactDismissTimerRef.current !== null) {
@@ -209,6 +225,12 @@ const App = () => {
 
   useEffect(() => () => clearImpactDismissTimer(), [clearImpactDismissTimer]);
 
+  useEffect(() => {
+    if (!focusedImpact) {
+      setActiveResourceKey(currentNode.id);
+    }
+  }, [currentNode.id, focusedImpact]);
+
   const performAdvance = useCallback(() => {
     if (!nextNode) return;
 
@@ -218,6 +240,7 @@ const App = () => {
       detail: "Core spine move",
       delta: advanceImpactDelta,
     });
+    setActiveResourceKey(nextNode.id);
     setTransitionTick((value) => value + 1);
     setState((prev) => advanceOneStep(prev));
   }, [nextNode, currentNode.label, advanceImpactDelta]);
@@ -276,6 +299,7 @@ const App = () => {
       detail: "Combination crafted",
       delta,
     });
+    setActiveResourceKey(combo.output);
 
     setState((prev) => craftCombination(prev, combinationId));
     setSelectedCombinationId("");
@@ -293,6 +317,7 @@ const App = () => {
       detail: modifier.description,
       delta,
     });
+    setActiveResourceKey(modifier.id);
 
     setState((prev) => applyModifier(prev, modifier.id));
     setSelectedModifierId("");
@@ -311,6 +336,7 @@ const App = () => {
       detail: "Combination preview (click combo again to craft)",
       delta,
     });
+    setActiveResourceKey(combo.output);
   };
 
   const handleSelectModifier = (modifierId: string) => {
@@ -325,6 +351,7 @@ const App = () => {
       detail: `Preview: ${modifier.description} (click beacon again to apply)`,
       delta,
     });
+    setActiveResourceKey(modifier.id);
   };
 
   const handleGateSubmit = () => {
@@ -348,6 +375,8 @@ const App = () => {
     setState(resetRun());
     setSelectedCombinationId("");
     setSelectedModifierId("");
+    setActiveResourceKey(rules.run.start_node);
+    setResourceAnchor(null);
     setPassedGateKeys([]);
     setPendingGateKey(null);
     setGateAnswer("");
@@ -356,9 +385,17 @@ const App = () => {
   };
 
   const handleActionFocus = (anchor: ActionFocusAnchor) => {
+    const x = clamp(anchor.x, 0.18, 0.82);
+    const y = clamp(anchor.y, 0.14, 0.82);
+
+    setResourceAnchor({
+      x,
+      y: clamp(y + 0.16, 0.16, 0.88),
+    });
+
     setImpactAnchor({
-      x: clamp(anchor.x, 0.2, 0.8),
-      y: clamp(anchor.y + 0.08, 0.12, 0.74),
+      x,
+      y: clamp(y + 0.08, 0.12, 0.74),
     });
   };
 
@@ -424,7 +461,38 @@ const App = () => {
                 onSelectModifier={handleSelectModifier}
                 onApplyModifier={handleModifier}
                 onActionFocus={handleActionFocus}
+                onResourceFocus={setActiveResourceKey}
               />
+            </div>
+          </div>
+
+          <div
+            className={`scene-resource-card${resourceAnchor ? " anchored" : ""}`}
+            style={
+              resourceAnchor
+                ? {
+                    left: `${resourceAnchor.x * 100}%`,
+                    top: `${resourceAnchor.y * 100}%`,
+                  }
+                : undefined
+            }
+            hidden={Boolean(focusedImpact)}
+          >
+            <p className="resource-kicker">
+              {projectProfile.project_label} links · {activeResourceLabel}
+            </p>
+            <div className="resource-links">
+              {activeResourceLinks.map((link) => (
+                <a
+                  key={`${link.label}-${link.url}`}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={link.description ?? link.label}
+                >
+                  {link.label}
+                </a>
+              ))}
             </div>
           </div>
 
@@ -460,6 +528,24 @@ const App = () => {
                     {impactShortLabelById[axisId]} {formatSigned(focusedImpact.delta[axisId])}
                   </span>
                 ))}
+              </div>
+              <div className="impact-resource">
+                <p className="resource-kicker">
+                  {projectProfile.project_label} links · {activeResourceLabel}
+                </p>
+                <div className="resource-links">
+                  {activeResourceLinks.map((link) => (
+                    <a
+                      key={`${link.label}-${link.url}`}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={link.description ?? link.label}
+                    >
+                      {link.label}
+                    </a>
+                  ))}
+                </div>
               </div>
             </div>
           )}

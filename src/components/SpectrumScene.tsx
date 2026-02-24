@@ -32,6 +32,7 @@ type SpectrumSceneProps = {
   onSelectModifier: (modifierId: string) => void;
   onApplyModifier: (modifierId: string) => void;
   onActionFocus?: (anchor: ActionFocusAnchor) => void;
+  onResourceFocus?: (resourceKey: string) => void;
 };
 
 type LinkRef = {
@@ -72,6 +73,9 @@ type SceneRefs = {
   raycaster: THREE.Raycaster;
   pointer: THREE.Vector2;
   targetPosition: THREE.Vector3;
+  focusTarget: THREE.Vector3;
+  focusCameraPosition: THREE.Vector3;
+  autoFocusUntil: number;
   nodePositions: Map<string, THREE.Vector3>;
   nodeMeshes: Map<string, THREE.Mesh>;
   spineLinks: LinkRef[];
@@ -86,6 +90,7 @@ type SceneRefs = {
   frameId: number;
   cleanupResize: () => void;
   cleanupPointer: () => void;
+  cleanupControlStart: () => void;
 };
 
 const lensPalettes = {
@@ -453,6 +458,7 @@ const SpectrumScene = ({
   onSelectModifier,
   onApplyModifier,
   onActionFocus,
+  onResourceFocus,
 }: SpectrumSceneProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
@@ -463,6 +469,7 @@ const SpectrumScene = ({
   const onSelectModifierRef = useRef(onSelectModifier);
   const onApplyModifierRef = useRef(onApplyModifier);
   const onActionFocusRef = useRef(onActionFocus);
+  const onResourceFocusRef = useRef(onResourceFocus);
   const nextNodeIdRef = useRef<string | null>(nextNodeId);
   const interactiveRef = useRef(interactive);
   const selectedCombinationRef = useRef(selectedCombinationId);
@@ -471,6 +478,7 @@ const SpectrumScene = ({
   const availableModifierIdsRef = useRef(availableModifierIds);
   const craftedCombinationsRef = useRef(craftedCombinationIds);
   const transitionUntilRef = useRef(0);
+  const currentNodeIdRef = useRef(currentNodeId);
 
   const safeVisited = useMemo(() => new Set(visitedNodeIds), [visitedNodeIds]);
   const safeCrafted = useMemo(() => new Set(craftedCombinationIds), [craftedCombinationIds]);
@@ -529,6 +537,10 @@ const SpectrumScene = ({
   }, [onActionFocus]);
 
   useEffect(() => {
+    onResourceFocusRef.current = onResourceFocus;
+  }, [onResourceFocus]);
+
+  useEffect(() => {
     nextNodeIdRef.current = nextNodeId;
   }, [nextNodeId]);
 
@@ -579,11 +591,15 @@ const SpectrumScene = ({
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.enablePan = false;
-    controls.minDistance = 6;
-    controls.maxDistance = 34;
+    controls.enablePan = true;
+    controls.screenSpacePanning = true;
+    controls.panSpeed = 0.84;
+    controls.zoomSpeed = 0.96;
+    controls.rotateSpeed = 0.82;
+    controls.minDistance = 4.5;
+    controls.maxDistance = 42;
     controls.minPolarAngle = 0.25;
-    controls.maxPolarAngle = 1.46;
+    controls.maxPolarAngle = 1.52;
     controls.enabled = interactiveRef.current;
 
     const ambient = new THREE.AmbientLight(lens.ambient, 0.62);
@@ -760,6 +776,33 @@ const SpectrumScene = ({
     onResize();
     window.addEventListener("resize", onResize);
 
+    let stateRef: SceneRefs;
+
+    const queueAutoFocus = (position: THREE.Vector3, durationMs = 920) => {
+      const offset = stateRef.camera.position.clone().sub(stateRef.controls.target);
+      const offsetLength = offset.length();
+
+      if (offsetLength < 0.1) {
+        offset.set(4, 6.5, 12);
+      } else if (offsetLength < 8) {
+        offset.setLength(8);
+      } else if (offsetLength > 25) {
+        offset.setLength(25);
+      }
+
+      const nextCameraPosition = position.clone().add(offset);
+      nextCameraPosition.y = THREE.MathUtils.clamp(nextCameraPosition.y, -1.4, 16);
+
+      stateRef.focusTarget.copy(position);
+      stateRef.focusCameraPosition.copy(nextCameraPosition);
+      stateRef.autoFocusUntil = performance.now() + durationMs;
+    };
+
+    const onControlStart = () => {
+      if (!interactiveRef.current) return;
+      stateRef.autoFocusUntil = 0;
+    };
+
     const onSceneClick = (event: MouseEvent) => {
       if (!interactiveRef.current) return;
 
@@ -790,6 +833,11 @@ const SpectrumScene = ({
 
       if (clickType === "node") {
         const nodeId = (hit.object as THREE.Mesh).userData.nodeId as string;
+        onResourceFocusRef.current?.(nodeId);
+        const nodePosition = stateRef.nodePositions.get(nodeId);
+        if (nodePosition) {
+          queueAutoFocus(nodePosition, 980);
+        }
         if (nodeId === nextNodeIdRef.current) {
           onAdvanceRef.current();
         }
@@ -798,6 +846,8 @@ const SpectrumScene = ({
 
       if (clickType === "combo") {
         const comboId = (hit.object as THREE.Mesh).userData.comboId as string;
+        const comboOutput = combinationsById.get(comboId)?.output;
+        onResourceFocusRef.current?.(comboOutput ?? comboId);
         const available = availableCombinationIdsRef.current.includes(comboId);
         if (!available) return;
         if (selectedCombinationRef.current === comboId) {
@@ -810,6 +860,7 @@ const SpectrumScene = ({
 
       if (clickType === "modifier") {
         const modifierId = (hit.object as THREE.Mesh).userData.modifierId as string;
+        onResourceFocusRef.current?.(modifierId);
         const available = availableModifierIdsRef.current.includes(modifierId);
         if (!available) return;
         if (selectedModifierRef.current === modifierId) {
@@ -820,13 +871,11 @@ const SpectrumScene = ({
       }
     };
 
-    renderer.domElement.addEventListener("click", onSceneClick);
-
     const startPosition = nodePositions.get(currentNodeId) ?? new THREE.Vector3();
     traveler.position.copy(startPosition);
     controls.target.copy(startPosition);
 
-    const stateRef: SceneRefs = {
+    stateRef = {
       scene,
       camera,
       renderer,
@@ -834,6 +883,9 @@ const SpectrumScene = ({
       raycaster,
       pointer,
       targetPosition: startPosition.clone(),
+      focusTarget: startPosition.clone(),
+      focusCameraPosition: camera.position.clone(),
+      autoFocusUntil: performance.now() + 940,
       nodePositions,
       nodeMeshes,
       spineLinks,
@@ -848,7 +900,11 @@ const SpectrumScene = ({
       frameId: 0,
       cleanupResize: () => window.removeEventListener("resize", onResize),
       cleanupPointer: () => renderer.domElement.removeEventListener("click", onSceneClick),
+      cleanupControlStart: () => controls.removeEventListener("start", onControlStart),
     };
+
+    controls.addEventListener("start", onControlStart);
+    renderer.domElement.addEventListener("click", onSceneClick);
 
     const clock = new THREE.Clock();
     const animate = () => {
@@ -913,6 +969,11 @@ const SpectrumScene = ({
         labelMaterial.opacity = 0.96 * (1 - progress);
       });
 
+      if (performance.now() < stateRef.autoFocusUntil) {
+        stateRef.controls.target.lerp(stateRef.focusTarget, 0.14);
+        stateRef.camera.position.lerp(stateRef.focusCameraPosition, 0.14);
+      }
+
       stateRef.controls.enabled = interactiveRef.current;
       stateRef.controls.update();
 
@@ -927,6 +988,7 @@ const SpectrumScene = ({
       window.cancelAnimationFrame(stateRef.frameId);
       stateRef.cleanupResize();
       stateRef.cleanupPointer();
+      stateRef.cleanupControlStart();
       disposeScene(stateRef.scene);
       stateRef.controls.dispose();
       stateRef.renderer.dispose();
@@ -1086,9 +1148,30 @@ const SpectrumScene = ({
       }
     });
 
+    const currentNodeChanged = currentNodeIdRef.current !== currentNodeId;
+    currentNodeIdRef.current = currentNodeId;
+
     const currentPosition = sceneRefs.nodePositions.get(currentNodeId);
     if (currentPosition) {
       sceneRefs.targetPosition.copy(currentPosition);
+      if (currentNodeChanged) {
+        const offset = sceneRefs.camera.position.clone().sub(sceneRefs.controls.target);
+        const offsetLength = offset.length();
+
+        if (offsetLength < 0.1) {
+          offset.set(4, 6.5, 12);
+        } else if (offsetLength < 8) {
+          offset.setLength(8);
+        } else if (offsetLength > 25) {
+          offset.setLength(25);
+        }
+
+        const focusCamera = currentPosition.clone().add(offset);
+        focusCamera.y = THREE.MathUtils.clamp(focusCamera.y, -1.4, 16);
+        sceneRefs.focusTarget.copy(currentPosition);
+        sceneRefs.focusCameraPosition.copy(focusCamera);
+        sceneRefs.autoFocusUntil = performance.now() + 980;
+      }
     }
 
     const pulseMaterial = sceneRefs.pulseRing.material as THREE.MeshBasicMaterial;

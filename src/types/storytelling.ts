@@ -50,6 +50,20 @@ export type DistributionModifier = {
   metric_delta: SignalProfile;
 };
 
+export type ProjectResourceLink = {
+  label: string;
+  url: string;
+  kind?: string;
+  description?: string;
+};
+
+export type ProjectProfile = {
+  project_id: string;
+  project_label: string;
+  default_links: ProjectResourceLink[];
+  resource_links: Record<string, ProjectResourceLink[]>;
+};
+
 export type StorytellingDictionary = {
   name: string;
   version: string;

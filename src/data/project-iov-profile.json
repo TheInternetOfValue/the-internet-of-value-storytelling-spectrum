@@ -1,0 +1,180 @@
+{
+  "project_id": "the-internet-of-value",
+  "project_label": "The Internet of Value",
+  "default_links": [
+    {
+      "label": "IOV Home",
+      "url": "https://theinternetofvalue.xyz",
+      "kind": "website",
+      "description": "Primary project hub."
+    },
+    {
+      "label": "X / Twitter",
+      "url": "https://x.com/TheInternetOfV",
+      "kind": "social",
+      "description": "Announcements and short-form updates."
+    }
+  ],
+  "resource_links": {
+    "thought": [
+      {
+        "label": "Founder Notes",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "notes",
+        "description": "Raw thought stream and directional context."
+      }
+    ],
+    "networked_thought": [
+      {
+        "label": "Research Threads",
+        "url": "https://x.com/TheInternetOfV",
+        "kind": "thread",
+        "description": "Linked thought trails and open loops."
+      }
+    ],
+    "text_structured": [
+      {
+        "label": "Substack Newsletter",
+        "url": "https://theinternetofvalue.substack.com",
+        "kind": "newsletter",
+        "description": "Structured long-form writing."
+      }
+    ],
+    "audio": [
+      {
+        "label": "Podcast / Audio",
+        "url": "https://www.youtube.com/@TheInternetOfValue",
+        "kind": "audio",
+        "description": "Voice-led explanations and context."
+      }
+    ],
+    "images": [
+      {
+        "label": "Visual Library",
+        "url": "https://www.instagram.com/theinternetofvalue/",
+        "kind": "images",
+        "description": "Static visual storytelling assets."
+      }
+    ],
+    "moving_images_without_audio": [
+      {
+        "label": "GIF / Motion Snippets",
+        "url": "https://www.instagram.com/theinternetofvalue/",
+        "kind": "motion",
+        "description": "Silent motion artifacts."
+      }
+    ],
+    "moving_images_with_audio": [
+      {
+        "label": "YouTube",
+        "url": "https://www.youtube.com/@TheInternetOfValue",
+        "kind": "video",
+        "description": "Video storytelling with audio."
+      }
+    ],
+    "website": [
+      {
+        "label": "Website",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "website",
+        "description": "Interactive information layer."
+      }
+    ],
+    "product": [
+      {
+        "label": "Product Experience",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "product",
+        "description": "Operationalized interaction layer."
+      }
+    ],
+    "solution": [
+      {
+        "label": "Case Studies",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "solution",
+        "description": "Measured outcome narratives."
+      }
+    ],
+    "protocol": [
+      {
+        "label": "Protocol Notes",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "protocol",
+        "description": "Shared rule frameworks and standards."
+      }
+    ],
+    "math": [
+      {
+        "label": "Math / Model Notes",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "math",
+        "description": "Formal abstractions and model constraints."
+      }
+    ],
+    "recorded_course": [
+      {
+        "label": "Coursework",
+        "url": "https://learn.theinternetofvalue.xyz",
+        "kind": "course",
+        "description": "Asynchronous learning path."
+      }
+    ],
+    "live_course": [
+      {
+        "label": "Live Cohort",
+        "url": "https://learn.theinternetofvalue.xyz",
+        "kind": "course",
+        "description": "Live sessions and Q&A."
+      }
+    ],
+    "workshop": [
+      {
+        "label": "Workshop Programs",
+        "url": "https://learn.theinternetofvalue.xyz",
+        "kind": "workshop",
+        "description": "Hands-on execution format."
+      }
+    ],
+    "meme_infographic": [
+      {
+        "label": "Meme / Infographic Pack",
+        "url": "https://www.instagram.com/theinternetofvalue/",
+        "kind": "artifact",
+        "description": "Compressed visual-text artifacts."
+      }
+    ],
+    "movie": [
+      {
+        "label": "Long-form Video",
+        "url": "https://www.youtube.com/@TheInternetOfValue",
+        "kind": "video",
+        "description": "Industrialized moving-image narrative."
+      }
+    ],
+    "feed": [
+      {
+        "label": "Feed Distribution",
+        "url": "https://www.instagram.com/theinternetofvalue/",
+        "kind": "distribution",
+        "description": "Algorithmic feed amplification."
+      }
+    ],
+    "search": [
+      {
+        "label": "Search Surface",
+        "url": "https://theinternetofvalue.xyz",
+        "kind": "distribution",
+        "description": "Intent-driven discovery surface."
+      }
+    ],
+    "community": [
+      {
+        "label": "Community",
+        "url": "https://discord.gg/theinternetofvalue",
+        "kind": "distribution",
+        "description": "Networked social spread."
+      }
+    ]
+  }
+}
