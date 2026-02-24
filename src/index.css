@@ -20,6 +20,8 @@
 body {
   margin: 0;
   min-height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
   background:
     radial-gradient(circle at 8% 8%, rgba(97, 184, 255, 0.16), transparent 28%),
     radial-gradient(circle at 86% 12%, rgba(94, 231, 206, 0.17), transparent 32%),
@@ -37,14 +39,17 @@ h2,
 
 #root {
   min-height: 100vh;
+  height: 100dvh;
 }
 
 .journey-app {
   min-height: 100vh;
+  height: 100dvh;
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow: hidden;
 }
 
 .journey-header {
@@ -145,7 +150,9 @@ h2,
   display: grid;
   grid-template-columns: minmax(0, 2.25fr) minmax(300px, 1fr);
   gap: 10px;
-  min-height: calc(100vh - 200px);
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .journey-layout.split-active {
@@ -157,13 +164,15 @@ h2,
   border-radius: 14px;
   overflow: hidden;
   position: relative;
-  min-height: 620px;
+  min-height: 0;
+  height: 100%;
   background: #07131a;
 }
 
 .scene-shell {
   width: 100%;
   height: 100%;
+  min-height: 0;
 }
 
 .scene-shell.dual {
@@ -175,14 +184,15 @@ h2,
 
 .scene-pane {
   position: relative;
-  min-height: 620px;
+  min-height: 0;
+  height: 100%;
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid rgba(137, 196, 208, 0.12);
 }
 
 .scene-shell.dual .scene-pane {
-  min-height: 560px;
+  min-height: 0;
 }
 
 .pane-badge {
@@ -211,11 +221,11 @@ h2,
 .spectrum-canvas {
   width: 100%;
   height: 100%;
-  min-height: 620px;
+  min-height: 0;
 }
 
 .scene-shell.dual .spectrum-canvas {
-  min-height: 560px;
+  min-height: 0;
 }
 
 .transition-card {
@@ -291,6 +301,8 @@ h2,
   border-radius: 14px;
   background: rgba(6, 21, 28, 0.84);
   padding: 8px;
+  min-height: 0;
+  height: 100%;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -501,26 +513,29 @@ h2,
 
 @media (max-width: 1180px) {
   .journey-layout {
-    grid-template-columns: 1fr;
-    min-height: auto;
+    grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
   }
 
-  .scene-shell.dual {
-    grid-template-columns: 1fr;
-    padding: 6px;
-  }
-
-  .scene-stage,
-  .scene-pane,
-  .spectrum-canvas,
-  .scene-shell.dual .scene-pane,
-  .scene-shell.dual .spectrum-canvas {
-    min-height: 520px;
+  .journey-layout.split-active {
+    grid-template-columns: minmax(0, 2.2fr) minmax(280px, 1fr);
   }
 }
 
 @media (max-width: 900px) {
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  #root {
+    height: auto;
+    min-height: 100vh;
+  }
+
   .journey-app {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
     padding: 8px;
     gap: 8px;
   }
@@ -548,12 +563,34 @@ h2,
     grid-template-columns: 1fr;
   }
 
-  .scene-stage,
+  .journey-layout,
+  .journey-layout.split-active {
+    grid-template-columns: 1fr;
+    min-height: auto;
+    height: auto;
+  }
+
+  .scene-shell.dual {
+    grid-template-columns: 1fr;
+    padding: 6px;
+  }
+
+  .scene-stage {
+    min-height: 52vh;
+    height: 52vh;
+  }
+
   .scene-pane,
   .spectrum-canvas,
   .scene-shell.dual .scene-pane,
   .scene-shell.dual .spectrum-canvas {
     min-height: 52vh;
+    height: 52vh;
+  }
+
+  .journey-panel {
+    height: auto;
+    max-height: none;
   }
 
   .transition-card {
