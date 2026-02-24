@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { dictionary } from "@/lib/storytellingGame";
-import type { CombinationRecipe, SpineNode } from "@/types/storytelling";
+import type { CombinationRecipe, SignalProfile, SpineNode } from "@/types/storytelling";
 
 type LensMode = "truth" | "persuasion" | "distortion";
 
@@ -66,6 +66,7 @@ type SceneRefs = {
   frameId: number;
   cleanupResize: () => void;
   cleanupPointer: () => void;
+  desiredCamera: THREE.Vector3;
 };
 
 const lensPalettes = {
@@ -125,6 +126,12 @@ const modifierPalette: Record<string, number> = {
   paid: 0xffb56b,
 };
 
+const lensScoreWeights: Record<LensMode, SignalProfile> = {
+  truth: { fidelity: 1.45, persuasion: 0.42, reach: 0.6, distortion: -1.25 },
+  persuasion: { fidelity: 0.28, persuasion: 1.34, reach: 1.08, distortion: 0.32 },
+  distortion: { fidelity: -1.1, persuasion: 0.72, reach: 0.46, distortion: 1.48 },
+};
+
 const combinationsById = new Map(dictionary.combination_layer.map((combo) => [combo.id, combo]));
 const artifactLabelsById = new Map(
   dictionary.extended_artifacts.map((artifact) => [artifact.id, artifact.label])
@@ -182,10 +189,17 @@ const setLineColor = (line: THREE.Line, color: number, opacity: number) => {
   material.transparent = opacity < 1;
 };
 
-const setNodeVisual = (mesh: THREE.Mesh, color: number, emissive: number, scale = 1) => {
+const setNodeVisual = (
+  mesh: THREE.Mesh,
+  color: number,
+  emissive: number,
+  scale = 1,
+  emissiveIntensity = 0.9
+) => {
   const material = mesh.material as THREE.MeshStandardMaterial;
   material.color.setHex(color);
   material.emissive.setHex(emissive);
+  material.emissiveIntensity = emissiveIntensity;
   mesh.scale.setScalar(scale);
 };
 
@@ -373,6 +387,30 @@ const SpectrumScene = ({
   const safeVisited = useMemo(() => new Set(visitedNodeIds), [visitedNodeIds]);
   const safeCrafted = useMemo(() => new Set(craftedCombinationIds), [craftedCombinationIds]);
   const safeAvailable = useMemo(() => new Set(availableCombinationIds), [availableCombinationIds]);
+  const nodeById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const lensNodeEmphasis = useMemo(() => {
+    if (nodes.length === 0) return new Map<string, number>();
+
+    const weights = lensScoreWeights[lensMode];
+    const scored = nodes.map((node) => {
+      const signal = node.signal_profile;
+      const score =
+        signal.fidelity * weights.fidelity +
+        signal.persuasion * weights.persuasion +
+        signal.reach * weights.reach +
+        signal.distortion * weights.distortion;
+      return { id: node.id, score };
+    });
+
+    const scores = scored.map((entry) => entry.score);
+    const min = Math.min(...scores);
+    const max = Math.max(...scores);
+    const span = Math.max(max - min, 1);
+
+    return new Map(
+      scored.map((entry) => [entry.id, 0.78 + ((entry.score - min) / span) * 0.62])
+    );
+  }, [nodes, lensMode]);
 
   useEffect(() => {
     onAdvanceRef.current = onAdvance;
@@ -623,6 +661,7 @@ const SpectrumScene = ({
       frameId: 0,
       cleanupResize: () => window.removeEventListener("resize", onResize),
       cleanupPointer: () => renderer.domElement.removeEventListener("click", onSceneClick),
+      desiredCamera: new THREE.Vector3(startPosition.x + 5.3, startPosition.y + 4.6, startPosition.z + 8.4),
     };
 
     const clock = new THREE.Clock();
@@ -685,8 +724,11 @@ const SpectrumScene = ({
         stateRef.controls.enabled = false;
         stateRef.controls.target.lerp(stateRef.targetPosition, isTransitioning ? 0.25 : 0.15);
         const camTarget = stateRef.controls.target;
-        const desiredCamera = new THREE.Vector3(camTarget.x + 5.3, camTarget.y + 4.6, camTarget.z + 8.4);
-        stateRef.camera.position.lerp(desiredCamera, isTransitioning ? 0.11 : 0.035);
+        const offsetX = interactiveRef.current ? 5.3 : -6.2;
+        const offsetY = interactiveRef.current ? 4.6 : 6.1;
+        const offsetZ = interactiveRef.current ? 8.4 : 9.2;
+        stateRef.desiredCamera.set(camTarget.x + offsetX, camTarget.y + offsetY, camTarget.z + offsetZ);
+        stateRef.camera.position.lerp(stateRef.desiredCamera, isTransitioning ? 0.11 : 0.035);
         const targetFov = isTransitioning ? 47 : 52;
         stateRef.camera.fov += (targetFov - stateRef.camera.fov) * 0.09;
         stateRef.camera.updateProjectionMatrix();
@@ -753,15 +795,20 @@ const SpectrumScene = ({
       const isCurrent = nodeId === currentNodeId;
       const isNext = nodeId === nextNodeId;
       const isVisited = safeVisited.has(nodeId);
+      const lensEmphasis = lensNodeEmphasis.get(nodeId) ?? 1;
+      const distortionShare = (nodeById.get(nodeId)?.signal_profile.distortion ?? 0) / 100;
+      const baseScale = isCurrent ? 1.14 : isNext ? 1.06 : isVisited ? 0.98 : 0.9;
+      const scale = baseScale * lensEmphasis;
+      const intensity = 0.82 + lensEmphasis * 0.26 + distortionShare * 0.18;
 
       if (isCurrent) {
-        setNodeVisual(mesh, lens.nodeCurrent, 0x8f5c17, 1.2);
+        setNodeVisual(mesh, lens.nodeCurrent, 0x8f5c17, scale, intensity + 0.12);
       } else if (isNext) {
-        setNodeVisual(mesh, lens.nodeNext, 0x138873, 1.1);
+        setNodeVisual(mesh, lens.nodeNext, 0x138873, scale, intensity + 0.08);
       } else if (isVisited) {
-        setNodeVisual(mesh, lens.nodeVisited, 0x0e5a55, 1.02);
+        setNodeVisual(mesh, lens.nodeVisited, 0x0e5a55, scale, intensity);
       } else {
-        setNodeVisual(mesh, basePalette.nodeIdle, 0x07131a, 0.95);
+        setNodeVisual(mesh, basePalette.nodeIdle, 0x07131a, scale, 0.72 + lensEmphasis * 0.18);
       }
     });
 
@@ -875,6 +922,8 @@ const SpectrumScene = ({
     selectedModifierId,
     appliedModifierIds,
     lensMode,
+    lensNodeEmphasis,
+    nodeById,
   ]);
 
   return <div ref={containerRef} className="spectrum-canvas" aria-label="3D storytelling spectrum" />;

@@ -121,6 +121,10 @@ h2,
   border-color: rgba(94, 231, 206, 0.48);
 }
 
+.lens-note {
+  margin-top: 7px !important;
+}
+
 .status-chips {
   margin-top: 8px;
   display: flex;
@@ -142,6 +146,10 @@ h2,
   grid-template-columns: minmax(0, 2.25fr) minmax(300px, 1fr);
   gap: 10px;
   min-height: calc(100vh - 200px);
+}
+
+.journey-layout.split-active {
+  grid-template-columns: minmax(0, 2.8fr) minmax(300px, 0.9fr);
 }
 
 .scene-stage {
@@ -190,6 +198,10 @@ h2,
   letter-spacing: 0.04em;
   color: var(--ink-1);
   background: rgba(7, 22, 29, 0.86);
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .compare-pane {
@@ -215,9 +227,24 @@ h2,
   border: 1px solid rgba(244, 215, 145, 0.54);
   border-radius: 12px;
   background: rgba(16, 26, 31, 0.92);
-  padding: 10px;
+  padding: 28px 10px 10px;
   backdrop-filter: blur(4px);
   animation: transition-in 240ms ease;
+  z-index: 4;
+}
+
+.transition-close {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  border: 1px solid rgba(138, 189, 204, 0.34);
+  border-radius: 999px;
+  background: rgba(8, 22, 30, 0.75);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  cursor: pointer;
 }
 
 .transition-card p {

@@ -39,6 +39,25 @@ const signalKeys: SignalMetric[] = ["fidelity", "persuasion", "reach", "distorti
 const lensModes: LensMode[] = ["truth", "persuasion", "distortion"];
 const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
 const gateKey = (from: string, to: string) => `${from}->${to}`;
+const clampMetric = (value: number) => Math.max(0, Math.min(100, value));
+const compactSignal = (signal: SignalProfile) =>
+  `f${signal.fidelity} p${signal.persuasion} r${signal.reach} d${signal.distortion}`;
+
+const lensSignalAdjustments: Record<LensMode, SignalProfile> = {
+  truth: { fidelity: 12, persuasion: -4, reach: -2, distortion: -10 },
+  persuasion: { fidelity: -8, persuasion: 12, reach: 8, distortion: 4 },
+  distortion: { fidelity: -14, persuasion: 6, reach: 2, distortion: 14 },
+};
+
+const projectSignalForLens = (signal: SignalProfile, lens: LensMode): SignalProfile => {
+  const delta = lensSignalAdjustments[lens];
+  return {
+    fidelity: clampMetric(signal.fidelity + delta.fidelity),
+    persuasion: clampMetric(signal.persuasion + delta.persuasion),
+    reach: clampMetric(signal.reach + delta.reach),
+    distortion: clampMetric(signal.distortion + delta.distortion),
+  };
+};
 
 const gateChallenges: Record<string, GateChallenge> = {
   "product->solution": {
@@ -85,8 +104,6 @@ const App = () => {
   const [transitionCard, setTransitionCard] = useState<TransitionCard | null>(null);
   const [transitionTick, setTransitionTick] = useState(0);
 
-  const transitionTimerRef = useRef<number | null>(null);
-
   const currentNode = getNode(state.currentNodeId);
   const nextNodeId = getNextNodeId(state.currentNodeId);
   const canAdvance = Boolean(nextNodeId);
@@ -124,6 +141,14 @@ const App = () => {
   const pendingGate = pendingGateKey ? gateChallenges[pendingGateKey] ?? null : null;
 
   const compareLensOptions = lensModes.filter((mode) => mode !== lensMode);
+  const primaryLensSignal = useMemo(
+    () => projectSignalForLens(currentSignal, lensMode),
+    [currentSignal, lensMode]
+  );
+  const secondaryLensSignal = useMemo(
+    () => projectSignalForLens(currentSignal, compareLens),
+    [currentSignal, compareLens]
+  );
 
   useEffect(() => {
     if (compareLens === lensMode) {
@@ -131,21 +156,9 @@ const App = () => {
     }
   }, [compareLens, lensMode]);
 
-  const clearTransitionTimer = () => {
-    if (transitionTimerRef.current) {
-      window.clearTimeout(transitionTimerRef.current);
-      transitionTimerRef.current = null;
-    }
-  };
-
   const launchTransition = useCallback((from: string, to: string, delta: SignalProfile) => {
-    clearTransitionTimer();
     setTransitionCard({ from, to, delta });
     setTransitionTick((value) => value + 1);
-    transitionTimerRef.current = window.setTimeout(() => {
-      setTransitionCard(null);
-      transitionTimerRef.current = null;
-    }, 1300);
   }, []);
 
   const performAdvance = useCallback(() => {
@@ -194,13 +207,6 @@ const App = () => {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  useEffect(
-    () => () => {
-      clearTransitionTimer();
-    },
-    []
-  );
-
   const handleCraft = () => {
     if (!selectedCombinationId) return;
     setState((prev) => craftCombination(prev, selectedCombinationId));
@@ -247,7 +253,6 @@ const App = () => {
     setGateAnswer("");
     setGateError("");
     setTransitionCard(null);
-    clearTransitionTimer();
   };
 
   return (
@@ -291,21 +296,28 @@ const App = () => {
             </select>
           )}
         </div>
+        <p className="micro-note lens-note">
+          Split view compares how each lens reweights the same run signal, not just color.
+        </p>
 
         <div className="status-chips">
           <span>Progress {Math.round(progressPercent)}%</span>
           <span>Camera {cameraMode}</span>
+          <span>{lensMode}: {compactSignal(primaryLensSignal)}</span>
+          {splitView && <span>{compareLens}: {compactSignal(secondaryLensSignal)}</span>}
           <span>{selectedCombination ? `Combo Preview: ${selectedCombination.label}` : "No combo preview"}</span>
           <span>{activeModifier ? `Modifier Field: ${activeModifier.label}` : "No modifier field"}</span>
           <span>{latestEvent ? `Latest: ${latestEvent.detail}` : "Latest: no move yet"}</span>
         </div>
       </header>
 
-      <main className="journey-layout">
+      <main className={`journey-layout${splitView ? " split-active" : ""}`}>
         <section className={`scene-stage${splitView ? " split-mode" : ""}`}>
           <div className={`scene-shell${splitView ? " dual" : ""}`}>
             <div className="scene-pane primary-pane">
-              {splitView && <div className="pane-badge">Primary • {lensMode}</div>}
+              {splitView && (
+                <div className="pane-badge">Primary • {lensMode} • {compactSignal(primaryLensSignal)}</div>
+              )}
               <SpectrumScene
                 nodes={dictionary.core_spine}
                 currentNodeId={state.currentNodeId}
@@ -326,7 +338,9 @@ const App = () => {
 
             {splitView && (
               <div className="scene-pane compare-pane">
-                <div className="pane-badge">Compare • {compareLens}</div>
+                <div className="pane-badge">
+                  Compare • {compareLens} • {compactSignal(secondaryLensSignal)}
+                </div>
                 <SpectrumScene
                   nodes={dictionary.core_spine}
                   currentNodeId={state.currentNodeId}
@@ -349,6 +363,14 @@ const App = () => {
 
           {transitionCard && (
             <div className="transition-card">
+              <button
+                type="button"
+                className="transition-close"
+                onClick={() => setTransitionCard(null)}
+                aria-label="Dismiss transition details"
+              >
+                Dismiss
+              </button>
               <p>{transitionCard.from} {"->"} {transitionCard.to}</p>
               <div>
                 {signalKeys.map((metric) => (
