@@ -53,6 +53,7 @@ const getNextNodeId = (currentNodeId: string): string | null => {
   const edge = rules.progression_edges.find(([from]) => from === currentNodeId);
   return edge ? edge[1] : null;
 };
+export { getNextNodeId };
 
 const hasIngredient = (state: StorytellingRunState, ingredientId: string) =>
   state.visitedNodeIds.includes(ingredientId) || state.craftedArtifactIds.includes(ingredientId);
@@ -275,3 +276,22 @@ export const getMetricDeltaLabel = (delta: SignalProfile): string =>
     .join(" | ");
 
 export const getEmptySignal = emptySignalProfile;
+
+export const getAdvanceDelta = (
+  state: StorytellingRunState
+): { nextNode: SpineNode | null; delta: SignalProfile } => {
+  const nextNodeId = getNextNodeId(state.currentNodeId);
+  if (!nextNodeId) {
+    return { nextNode: null, delta: emptySignalProfile() };
+  }
+
+  const currentNode = getNode(state.currentNodeId);
+  const nextNode = getNode(nextNodeId);
+  const delta: SignalProfile = { ...emptySignalProfile() };
+
+  metricKeys.forEach((key) => {
+    delta[key] = nextNode.signal_profile[key] - currentNode.signal_profile[key];
+  });
+
+  return { nextNode, delta };
+};
