@@ -11,6 +11,13 @@ export type SignalProfile = Record<SignalMetric, number>;
 
 export type AxisValues = Record<AxisId, number>;
 
+export type ImpactAxisId =
+  | "sensory_activation"
+  | "ease_of_consumption"
+  | "creation_effort";
+
+export type ImpactAxes = Record<ImpactAxisId, number>;
+
 export type SpineNode = {
   id: string;
   label: string;

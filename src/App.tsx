@@ -1,23 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SpectrumScene from "@/components/SpectrumScene";
 import {
-  addReflection,
   advanceOneStep,
   applyModifier,
-  computeCurrentSignalProfile,
+  axisLabelById,
   craftCombination,
   createInitialState,
   dictionary,
-  getAdvanceDelta,
+  getAdvanceImpactDelta,
+  getArtifactLabel,
   getAvailableCombinations,
   getAvailableModifiers,
-  getMetricDeltaLabel,
+  getCombinationImpactDelta,
+  getCurrentImpactAxes,
+  getModifierImpactDelta,
   getNextNodeId,
   getNode,
   resetRun,
   rules,
 } from "@/lib/storytellingGame";
-import type { SignalMetric, SignalProfile, StorytellingRunState } from "@/types/storytelling";
+import type { ImpactAxes, ImpactAxisId, StorytellingRunState } from "@/types/storytelling";
 
 type LensMode = "truth" | "persuasion" | "distortion";
 
@@ -26,38 +28,35 @@ type GateChallenge = {
   prompt: string;
   placeholder: string;
   hint: string;
+  templates: [string, string];
   validate: (answer: string) => boolean;
 };
 
-type TransitionCard = {
-  from: string;
-  to: string;
-  delta: SignalProfile;
+type FocusedImpact = {
+  kind: "advance" | "combination" | "modifier";
+  title: string;
+  detail: string;
+  delta: ImpactAxes;
 };
 
-const signalKeys: SignalMetric[] = ["fidelity", "persuasion", "reach", "distortion"];
 const lensModes: LensMode[] = ["truth", "persuasion", "distortion"];
+const impactAxisIds: ImpactAxisId[] = [
+  "sensory_activation",
+  "ease_of_consumption",
+  "creation_effort",
+];
+const impactShortLabelById: Record<ImpactAxisId, string> = {
+  sensory_activation: "Sensory",
+  ease_of_consumption: "Ease",
+  creation_effort: "Creation Effort",
+};
+
 const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
 const gateKey = (from: string, to: string) => `${from}->${to}`;
-const clampMetric = (value: number) => Math.max(0, Math.min(100, value));
-const compactSignal = (signal: SignalProfile) =>
-  `f${signal.fidelity} p${signal.persuasion} r${signal.reach} d${signal.distortion}`;
-
-const lensSignalAdjustments: Record<LensMode, SignalProfile> = {
-  truth: { fidelity: 12, persuasion: -4, reach: -2, distortion: -10 },
-  persuasion: { fidelity: -8, persuasion: 12, reach: 8, distortion: 4 },
-  distortion: { fidelity: -14, persuasion: 6, reach: 2, distortion: 14 },
-};
-
-const projectSignalForLens = (signal: SignalProfile, lens: LensMode): SignalProfile => {
-  const delta = lensSignalAdjustments[lens];
-  return {
-    fidelity: clampMetric(signal.fidelity + delta.fidelity),
-    persuasion: clampMetric(signal.persuasion + delta.persuasion),
-    reach: clampMetric(signal.reach + delta.reach),
-    distortion: clampMetric(signal.distortion + delta.distortion),
-  };
-};
+const formatImpactCompact = (delta: ImpactAxes) =>
+  impactAxisIds
+    .map((axisId) => `${impactShortLabelById[axisId]} ${formatSigned(delta[axisId])}`)
+    .join(" | ");
 
 const gateChallenges: Record<string, GateChallenge> = {
   "product->solution": {
@@ -66,7 +65,14 @@ const gateChallenges: Record<string, GateChallenge> = {
       "Show evidence this is a real solution. Include a before/after metric and a timeframe.",
     placeholder: "Example: conversion 2.1% -> 4.8% in 6 weeks",
     hint: "Need numbers + before/after + timeframe.",
-    validate: (answer) => /\d/.test(answer) && /(->|to|from)/i.test(answer) && /(day|week|month|year)/i.test(answer),
+    templates: [
+      "Activation rate 18% -> 31% in 5 weeks after onboarding redesign.",
+      "Support tickets per user 4.2 -> 1.7 in 2 months after workflow changes.",
+    ],
+    validate: (answer) =>
+      /\d/.test(answer) &&
+      /(->|to|from)/i.test(answer) &&
+      /(day|week|month|year)/i.test(answer),
   },
   "solution->protocol": {
     title: "Gate: Solution -> Protocol",
@@ -75,14 +81,21 @@ const gateChallenges: Record<string, GateChallenge> = {
     placeholder:
       "When quality score drops below X, participants must submit remediation within 48h.",
     hint: "Need both 'when' and 'must' in your rule.",
+    templates: [
+      "When response time exceeds 24 hours, moderators must publish a corrective plan within 48 hours.",
+      "When validation fails twice in one week, contributors must submit evidence and peer review before merge.",
+    ],
     validate: (answer) => /when/i.test(answer) && /must/i.test(answer),
   },
   "protocol->math": {
     title: "Gate: Protocol -> Math",
-    prompt:
-      "Formalize one protocol rule as an expression with variables and an operator.",
+    prompt: "Formalize one protocol rule as an expression with variables and an operator.",
     placeholder: "trust_score = (evidence_weight * validity) - distortion_penalty",
     hint: "Need variable letters and symbols like = + - * / < >.",
+    templates: [
+      "quality_score = (verified_events * confidence) - error_penalty",
+      "if response_time > threshold then risk = base_risk + escalation_factor",
+    ],
     validate: (answer) => /[a-zA-Z]/.test(answer) && /[=<>+\-*/]/.test(answer),
   },
 };
@@ -93,25 +106,27 @@ const App = () => {
   const [lensMode, setLensMode] = useState<LensMode>("truth");
   const [splitView, setSplitView] = useState(false);
   const [compareLens, setCompareLens] = useState<LensMode>("persuasion");
-  const [mobileTab, setMobileTab] = useState<"controls" | "impact" | "log">("controls");
+  const [mobileTab, setMobileTab] = useState<"controls" | "impact">("controls");
   const [selectedCombinationId, setSelectedCombinationId] = useState("");
   const [selectedModifierId, setSelectedModifierId] = useState("");
-  const [reflectionDraft, setReflectionDraft] = useState("");
   const [passedGateKeys, setPassedGateKeys] = useState<string[]>([]);
   const [pendingGateKey, setPendingGateKey] = useState<string | null>(null);
   const [gateAnswer, setGateAnswer] = useState("");
   const [gateError, setGateError] = useState("");
-  const [transitionCard, setTransitionCard] = useState<TransitionCard | null>(null);
+  const [focusedImpact, setFocusedImpact] = useState<FocusedImpact | null>(null);
   const [transitionTick, setTransitionTick] = useState(0);
 
   const currentNode = getNode(state.currentNodeId);
   const nextNodeId = getNextNodeId(state.currentNodeId);
   const canAdvance = Boolean(nextNodeId);
 
-  const currentSignal = useMemo(() => computeCurrentSignalProfile(state), [state]);
+  const currentImpactAxes = useMemo(() => getCurrentImpactAxes(state), [state]);
   const availableCombinations = useMemo(() => getAvailableCombinations(state), [state]);
   const availableModifiers = useMemo(() => getAvailableModifiers(state), [state]);
-  const { nextNode, delta: advanceDelta } = useMemo(() => getAdvanceDelta(state), [state]);
+  const { nextNode, delta: advanceImpactDelta } = useMemo(
+    () => getAdvanceImpactDelta(state),
+    [state]
+  );
 
   const selectedCombination = useMemo(
     () => dictionary.combination_layer.find((combo) => combo.id === selectedCombinationId) ?? null,
@@ -134,21 +149,39 @@ const App = () => {
     );
   }, [state.appliedModifierIds]);
 
-  const activeModifier = selectedModifier ?? appliedModifier;
+  const selectedCombinationImpact = useMemo(
+    () => (selectedCombination ? getCombinationImpactDelta(selectedCombination.id) : null),
+    [selectedCombination]
+  );
+
+  const selectedModifierImpact = useMemo(
+    () => (selectedModifier ? getModifierImpactDelta(selectedModifier.id) : null),
+    [selectedModifier]
+  );
+
+  const appliedModifierImpact = useMemo(
+    () => (appliedModifier ? getModifierImpactDelta(appliedModifier.id) : null),
+    [appliedModifier]
+  );
+
   const latestEvent = state.history.at(-1);
   const progressPercent = (currentNode.order / dictionary.core_spine.length) * 100;
   const isComplete = state.currentNodeId === rules.run.target_node;
   const pendingGate = pendingGateKey ? gateChallenges[pendingGateKey] ?? null : null;
 
   const compareLensOptions = lensModes.filter((mode) => mode !== lensMode);
-  const primaryLensSignal = useMemo(
-    () => projectSignalForLens(currentSignal, lensMode),
-    [currentSignal, lensMode]
+
+  const defaultImpact: FocusedImpact = useMemo(
+    () => ({
+      kind: "advance",
+      title: `${currentNode.label} -> ${nextNode?.label ?? "Complete"}`,
+      detail: nextNode ? "Next core spine move" : "Core spine complete",
+      delta: advanceImpactDelta,
+    }),
+    [advanceImpactDelta, currentNode.label, nextNode]
   );
-  const secondaryLensSignal = useMemo(
-    () => projectSignalForLens(currentSignal, compareLens),
-    [currentSignal, compareLens]
-  );
+
+  const activeImpact = focusedImpact ?? defaultImpact;
 
   useEffect(() => {
     if (compareLens === lensMode) {
@@ -156,16 +189,18 @@ const App = () => {
     }
   }, [compareLens, lensMode]);
 
-  const launchTransition = useCallback((from: string, to: string, delta: SignalProfile) => {
-    setTransitionCard({ from, to, delta });
-    setTransitionTick((value) => value + 1);
-  }, []);
-
   const performAdvance = useCallback(() => {
     if (!nextNode) return;
-    launchTransition(currentNode.label, nextNode.label, advanceDelta);
+
+    setFocusedImpact({
+      kind: "advance",
+      title: `${currentNode.label} -> ${nextNode.label}`,
+      detail: "Core spine move",
+      delta: advanceImpactDelta,
+    });
+    setTransitionTick((value) => value + 1);
     setState((prev) => advanceOneStep(prev));
-  }, [nextNode, launchTransition, currentNode.label, advanceDelta]);
+  }, [nextNode, currentNode.label, advanceImpactDelta]);
 
   const requestAdvance = useCallback(() => {
     if (!nextNodeId || !nextNode) return;
@@ -208,21 +243,34 @@ const App = () => {
   }, []);
 
   const handleCraft = () => {
-    if (!selectedCombinationId) return;
+    if (!selectedCombinationId || !selectedCombination) return;
+
+    const artifactLabel = getArtifactLabel(selectedCombination.output);
+    const delta = getCombinationImpactDelta(selectedCombination.id);
+    setFocusedImpact({
+      kind: "combination",
+      title: `${selectedCombination.label} -> ${artifactLabel}`,
+      detail: "Combination crafted",
+      delta,
+    });
+
     setState((prev) => craftCombination(prev, selectedCombinationId));
     setSelectedCombinationId("");
   };
 
   const handleModifier = () => {
-    if (!selectedModifierId) return;
+    if (!selectedModifierId || !selectedModifier) return;
+
+    const delta = getModifierImpactDelta(selectedModifierId);
+    setFocusedImpact({
+      kind: "modifier",
+      title: `Distribution: ${selectedModifier.label}`,
+      detail: "Distribution field applied",
+      delta,
+    });
+
     setState((prev) => applyModifier(prev, selectedModifierId));
     setSelectedModifierId("");
-  };
-
-  const handleReflection = () => {
-    if (!reflectionDraft.trim()) return;
-    setState((prev) => addReflection(prev, reflectionDraft));
-    setReflectionDraft("");
   };
 
   const handleGateSubmit = () => {
@@ -246,13 +294,12 @@ const App = () => {
     setState(resetRun());
     setSelectedCombinationId("");
     setSelectedModifierId("");
-    setReflectionDraft("");
     setMobileTab("controls");
     setPassedGateKeys([]);
     setPendingGateKey(null);
     setGateAnswer("");
     setGateError("");
-    setTransitionCard(null);
+    setFocusedImpact(null);
   };
 
   return (
@@ -297,16 +344,18 @@ const App = () => {
           )}
         </div>
         <p className="micro-note lens-note">
-          Split view compares how each lens reweights the same run signal, not just color.
+          Split view compares lens interpretation, while impact stays on the same 3 axes.
         </p>
 
         <div className="status-chips">
           <span>Progress {Math.round(progressPercent)}%</span>
           <span>Camera {cameraMode}</span>
-          <span>{lensMode}: {compactSignal(primaryLensSignal)}</span>
-          {splitView && <span>{compareLens}: {compactSignal(secondaryLensSignal)}</span>}
-          <span>{selectedCombination ? `Combo Preview: ${selectedCombination.label}` : "No combo preview"}</span>
-          <span>{activeModifier ? `Modifier Field: ${activeModifier.label}` : "No modifier field"}</span>
+          <span>
+            Profile: {impactShortLabelById.sensory_activation} {currentImpactAxes.sensory_activation} |{" "}
+            {impactShortLabelById.ease_of_consumption} {currentImpactAxes.ease_of_consumption} |{" "}
+            {impactShortLabelById.creation_effort} {currentImpactAxes.creation_effort}
+          </span>
+          <span>{appliedModifier ? `Modifier: ${appliedModifier.label}` : "Modifier: none"}</span>
           <span>{latestEvent ? `Latest: ${latestEvent.detail}` : "Latest: no move yet"}</span>
         </div>
       </header>
@@ -315,9 +364,7 @@ const App = () => {
         <section className={`scene-stage${splitView ? " split-mode" : ""}`}>
           <div className={`scene-shell${splitView ? " dual" : ""}`}>
             <div className="scene-pane primary-pane">
-              {splitView && (
-                <div className="pane-badge">Primary • {lensMode} • {compactSignal(primaryLensSignal)}</div>
-              )}
+              {splitView && <div className="pane-badge">Primary • {lensMode}</div>}
               <SpectrumScene
                 nodes={dictionary.core_spine}
                 currentNodeId={state.currentNodeId}
@@ -338,9 +385,7 @@ const App = () => {
 
             {splitView && (
               <div className="scene-pane compare-pane">
-                <div className="pane-badge">
-                  Compare • {compareLens} • {compactSignal(secondaryLensSignal)}
-                </div>
+                <div className="pane-badge">Compare • {compareLens}</div>
                 <SpectrumScene
                   nodes={dictionary.core_spine}
                   currentNodeId={state.currentNodeId}
@@ -361,26 +406,27 @@ const App = () => {
             )}
           </div>
 
-          {transitionCard && (
-            <div className="transition-card">
+          <div className="transition-card">
+            {focusedImpact && (
               <button
                 type="button"
                 className="transition-close"
-                onClick={() => setTransitionCard(null)}
-                aria-label="Dismiss transition details"
+                onClick={() => setFocusedImpact(null)}
+                aria-label="Dismiss focused impact"
               >
                 Dismiss
               </button>
-              <p>{transitionCard.from} {"->"} {transitionCard.to}</p>
-              <div>
-                {signalKeys.map((metric) => (
-                  <span key={metric}>
-                    {metric} {formatSigned(transitionCard.delta[metric])}
-                  </span>
-                ))}
-              </div>
+            )}
+            <p>{activeImpact.title}</p>
+            <p className="impact-detail">{activeImpact.detail}</p>
+            <div>
+              {impactAxisIds.map((axisId) => (
+                <span key={axisId}>
+                  {impactShortLabelById[axisId]} {formatSigned(activeImpact.delta[axisId])}
+                </span>
+              ))}
             </div>
-          )}
+          </div>
 
           <div className="scene-hud">
             <span>Current: {currentNode.label}</span>
@@ -402,12 +448,6 @@ const App = () => {
               className={mobileTab === "impact" ? "active" : ""}
             >
               Impact
-            </button>
-            <button
-              onClick={() => setMobileTab("log")}
-              className={mobileTab === "log" ? "active" : ""}
-            >
-              Log
             </button>
           </div>
 
@@ -432,7 +472,7 @@ const App = () => {
                 <option value="">Select combination</option>
                 {availableCombinations.map((combo) => (
                   <option key={combo.id} value={combo.id}>
-                    {combo.label}
+                    {combo.label} {"->"} {getArtifactLabel(combo.output)}
                   </option>
                 ))}
               </select>
@@ -441,8 +481,10 @@ const App = () => {
               </button>
             </div>
             <p className="micro-note">
-              {selectedCombination
-                ? `${selectedCombination.description} | ${getMetricDeltaLabel(selectedCombination.metric_delta)}`
+              {selectedCombination && selectedCombinationImpact
+                ? `${selectedCombination.label} -> ${getArtifactLabel(
+                    selectedCombination.output
+                  )} | ${formatImpactCompact(selectedCombinationImpact)}`
                 : availableCombinations.length > 0
                   ? `${availableCombinations.length} combinations available`
                   : "No combinations available yet"}
@@ -465,56 +507,36 @@ const App = () => {
               </button>
             </div>
             <p className="micro-note">
-              {selectedModifier
-                ? `Previewing modifier: ${selectedModifier.label} | ${getMetricDeltaLabel(selectedModifier.metric_delta)}`
-                : appliedModifier
-                  ? `Applied modifier: ${appliedModifier.label}`
+              {selectedModifier && selectedModifierImpact
+                ? `Preview: ${selectedModifier.label} | ${formatImpactCompact(selectedModifierImpact)}`
+                : appliedModifier && appliedModifierImpact
+                  ? `Applied: ${appliedModifier.label} | ${formatImpactCompact(appliedModifierImpact)}`
                   : "No modifier selected"}
             </p>
-          </section>
-
-          <section className="panel-card impact-card">
-            <p className="card-label">Impact</p>
-            <p className="next-node">
-              Advance Delta ({currentNode.label} {"->"} {nextNode?.label ?? "Complete"})
-            </p>
-            <ul className="delta-list">
-              {signalKeys.map((metric) => (
-                <li key={metric}>
-                  <span>{metric}</span>
-                  <strong>{formatSigned(advanceDelta[metric])}</strong>
-                </li>
-              ))}
-            </ul>
-            <p className="micro-note">Current signal: {getMetricDeltaLabel(currentSignal)}</p>
-            <p className="micro-note">Gate status: {passedGateKeys.length}/3 cleared</p>
-          </section>
-
-          <section className="panel-card log-card">
-            <p className="card-label">Reflection + Log</p>
-            <div className="inline-control stacked">
-              <input
-                value={reflectionDraft}
-                onChange={(event) => setReflectionDraft(event.target.value)}
-                placeholder="What gained, what lost in this step?"
-              />
-              <button onClick={handleReflection} disabled={!reflectionDraft.trim()}>
-                Log Reflection
-              </button>
-            </div>
-
-            <ul className="history-list">
-              {state.history.slice(-5).reverse().map((entry) => (
-                <li key={`${entry.turn}-${entry.detail}`}>
-                  <span>#{entry.turn}</span>
-                  <p>{entry.detail}</p>
-                </li>
-              ))}
-            </ul>
 
             <button onClick={handleReset} className="ghost-btn">
               Reset Journey
             </button>
+          </section>
+
+          <section className="panel-card impact-card">
+            <p className="card-label">Impact</p>
+            <p className="next-node">{activeImpact.title}</p>
+            <p className="micro-note">{activeImpact.detail}</p>
+            <ul className="delta-list">
+              {impactAxisIds.map((axisId) => (
+                <li key={axisId}>
+                  <span>{axisLabelById[axisId]}</span>
+                  <strong>{formatSigned(activeImpact.delta[axisId])}</strong>
+                </li>
+              ))}
+            </ul>
+            <p className="micro-note">
+              Current profile: {impactShortLabelById.sensory_activation} {currentImpactAxes.sensory_activation} |{" "}
+              {impactShortLabelById.ease_of_consumption} {currentImpactAxes.ease_of_consumption} |{" "}
+              {impactShortLabelById.creation_effort} {currentImpactAxes.creation_effort}
+            </p>
+            <p className="micro-note">Gate status: {passedGateKeys.length}/3 cleared</p>
           </section>
         </aside>
       </main>
@@ -525,6 +547,23 @@ const App = () => {
             <p className="kicker">Verification Gate</p>
             <h2>{pendingGate.title}</h2>
             <p>{pendingGate.prompt}</p>
+
+            <div className="gate-templates">
+              {pendingGate.templates.map((template, index) => (
+                <button
+                  key={`${pendingGate.title}-template-${index}`}
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => {
+                    setGateAnswer(template);
+                    setGateError("");
+                  }}
+                >
+                  Use Template {index + 1}
+                </button>
+              ))}
+            </div>
+
             <input
               value={gateAnswer}
               onChange={(event) => setGateAnswer(event.target.value)}

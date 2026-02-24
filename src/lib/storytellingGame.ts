@@ -5,6 +5,8 @@ import type {
   CombinationRecipe,
   DistributionModifier,
   HistoryEvent,
+  ImpactAxes,
+  ImpactAxisId,
   SignalProfile,
   SpineNode,
   StorytellingDictionary,
@@ -28,6 +30,12 @@ const axisKeys: Array<keyof AxisValues> = [
   "creation_effort",
   "bias_perception_load",
   "storytelling_effectiveness",
+];
+
+export const impactAxisKeys: ImpactAxisId[] = [
+  "sensory_activation",
+  "ease_of_consumption",
+  "creation_effort",
 ];
 
 const clamp = (value: number, min: number, max: number) =>
@@ -84,6 +92,36 @@ const emptyAxisValues = (): AxisValues => ({
   storytelling_effectiveness: 0,
 });
 
+const emptyImpactAxes = (): ImpactAxes => ({
+  sensory_activation: 0,
+  ease_of_consumption: 0,
+  creation_effort: 0,
+});
+
+export const axisLabelById: Record<ImpactAxisId, string> = {
+  sensory_activation: "Degree of Sensory Activation",
+  ease_of_consumption: "Ease of Consumption",
+  creation_effort: "Creation Effort",
+};
+
+export const projectSignalDeltaToImpactAxes = (delta: SignalProfile): ImpactAxes => ({
+  sensory_activation: Math.round(
+    delta.reach * 0.8 + delta.persuasion * 0.35 + delta.distortion * 0.2
+  ),
+  ease_of_consumption: Math.round(
+    delta.reach * 0.55 +
+      delta.persuasion * 0.4 -
+      delta.distortion * 0.3 +
+      delta.fidelity * 0.25
+  ),
+  creation_effort: Math.round(
+    delta.fidelity * 0.5 -
+      delta.persuasion * 0.2 -
+      delta.reach * 0.25 -
+      delta.distortion * 0.15
+  ),
+});
+
 export const computeCurrentSignalProfile = (state: StorytellingRunState): SignalProfile => {
   const profile: SignalProfile = {
     ...getNode(state.currentNodeId).signal_profile,
@@ -117,20 +155,32 @@ export const computeCurrentAxisValues = (state: StorytellingRunState): AxisValue
     ...getNode(state.currentNodeId).axis_values,
   };
 
-  const comboBoost = emptyAxisValues();
+  const comboBoost = emptyImpactAxes();
   state.craftedCombinationIds.forEach((comboId) => {
     const combo = combinationsById.get(comboId);
     if (!combo) return;
-
-    comboBoost.sensory_activation += 2;
-    comboBoost.ease_of_consumption += 1;
-    comboBoost.creation_effort += 2;
-    comboBoost.bias_perception_load += 1;
-    comboBoost.storytelling_effectiveness += 2;
+    const impact = projectSignalDeltaToImpactAxes(combo.metric_delta);
+    impactAxisKeys.forEach((axisId) => {
+      comboBoost[axisId] += impact[axisId];
+    });
   });
 
-  axisKeys.forEach((key) => {
-    axisValues[key] = clamp(axisValues[key] + comboBoost[key], 0, 100);
+  const modifierBoost = emptyImpactAxes();
+  state.appliedModifierIds.forEach((modifierId) => {
+    const modifier = modifiersById.get(modifierId);
+    if (!modifier) return;
+    const impact = projectSignalDeltaToImpactAxes(modifier.metric_delta);
+    impactAxisKeys.forEach((axisId) => {
+      modifierBoost[axisId] += impact[axisId];
+    });
+  });
+
+  impactAxisKeys.forEach((axisId) => {
+    axisValues[axisId] = clamp(
+      axisValues[axisId] + comboBoost[axisId] + modifierBoost[axisId],
+      0,
+      100
+    );
   });
 
   return axisValues;
@@ -275,7 +325,34 @@ export const getMetricDeltaLabel = (delta: SignalProfile): string =>
     .map((key) => `${key}: ${delta[key] >= 0 ? "+" : ""}${delta[key]}`)
     .join(" | ");
 
+export const getImpactDeltaLabel = (delta: ImpactAxes): string =>
+  impactAxisKeys
+    .map((axisId) => `${axisLabelById[axisId]}: ${delta[axisId] >= 0 ? "+" : ""}${delta[axisId]}`)
+    .join(" | ");
+
 export const getEmptySignal = emptySignalProfile;
+export const getEmptyImpactAxes = emptyImpactAxes;
+
+export const getCombinationImpactDelta = (combinationId: string): ImpactAxes => {
+  const combo = combinationsById.get(combinationId);
+  if (!combo) return emptyImpactAxes();
+  return projectSignalDeltaToImpactAxes(combo.metric_delta);
+};
+
+export const getModifierImpactDelta = (modifierId: string): ImpactAxes => {
+  const modifier = modifiersById.get(modifierId);
+  if (!modifier) return emptyImpactAxes();
+  return projectSignalDeltaToImpactAxes(modifier.metric_delta);
+};
+
+export const getCurrentImpactAxes = (state: StorytellingRunState): ImpactAxes => {
+  const axisValues = computeCurrentAxisValues(state);
+  return {
+    sensory_activation: axisValues.sensory_activation,
+    ease_of_consumption: axisValues.ease_of_consumption,
+    creation_effort: axisValues.creation_effort,
+  };
+};
 
 export const getAdvanceDelta = (
   state: StorytellingRunState
@@ -294,4 +371,28 @@ export const getAdvanceDelta = (
   });
 
   return { nextNode, delta };
+};
+
+export const getAdvanceImpactDelta = (
+  state: StorytellingRunState
+): { nextNode: SpineNode | null; delta: ImpactAxes } => {
+  const nextNodeId = getNextNodeId(state.currentNodeId);
+  if (!nextNodeId) {
+    return { nextNode: null, delta: emptyImpactAxes() };
+  }
+
+  const currentNode = getNode(state.currentNodeId);
+  const nextNode = getNode(nextNodeId);
+
+  return {
+    nextNode,
+    delta: {
+      sensory_activation:
+        nextNode.axis_values.sensory_activation - currentNode.axis_values.sensory_activation,
+      ease_of_consumption:
+        nextNode.axis_values.ease_of_consumption - currentNode.axis_values.ease_of_consumption,
+      creation_effort:
+        nextNode.axis_values.creation_effort - currentNode.axis_values.creation_effort,
+    },
+  };
 };

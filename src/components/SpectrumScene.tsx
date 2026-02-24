@@ -339,7 +339,8 @@ const createBirthEffect = (
   );
   group.add(sparks);
 
-  const label = createTextSprite(`Artifact: ${artifactLabel}`, "#ffe9b9", 20);
+  const recipeLabel = `${combo.label} -> ${artifactLabel}`;
+  const label = createTextSprite(recipeLabel, "#ffe9b9", 18);
   label.scale.multiplyScalar(0.72);
   label.position.set(0, 0.9, 0);
   (label.material as THREE.SpriteMaterial).opacity = 0.96;

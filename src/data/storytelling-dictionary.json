@@ -292,7 +292,7 @@
     },
     {
       "id": "images_plus_audio",
-      "label": "Images + Audio",
+      "label": "Static Images + Audio",
       "inputs": ["images", "audio"],
       "output": "narrated_visual",
       "description": "Visual framing with voice guidance.",
@@ -377,7 +377,7 @@
     },
     {
       "id": "narrated_visual",
-      "label": "Narrated Visual",
+      "label": "Narrated Visual (Static Image + Audio)",
       "category": "combination"
     },
     {
