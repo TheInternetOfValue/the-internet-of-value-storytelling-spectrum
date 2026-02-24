@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SpectrumScene from "@/components/SpectrumScene";
 import {
   addReflection,
@@ -26,6 +26,7 @@ const formatSigned = (value: number) => `${value >= 0 ? "+" : ""}${value}`;
 
 const App = () => {
   const [state, setState] = useState<StorytellingRunState>(createInitialState);
+  const [cameraMode, setCameraMode] = useState<"guided" | "explore">("guided");
   const [selectedCombinationId, setSelectedCombinationId] = useState("");
   const [selectedModifierId, setSelectedModifierId] = useState("");
   const [reflectionDraft, setReflectionDraft] = useState("");
@@ -47,6 +48,27 @@ const App = () => {
     if (!canAdvance) return;
     setState((prev) => advanceOneStep(prev));
   };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const isEditing =
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT" ||
+        target?.isContentEditable;
+
+      if (isEditing) return;
+
+      if (event.code === "Space" || event.key === "ArrowRight") {
+        event.preventDefault();
+        setState((prev) => (getNextNodeId(prev.currentNodeId) ? advanceOneStep(prev) : prev));
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const handleCraft = () => {
     if (!selectedCombinationId) return;
@@ -96,11 +118,13 @@ const App = () => {
             visitedNodeIds={state.visitedNodeIds}
             craftedCombinationIds={state.craftedCombinationIds}
             availableCombinationIds={availableCombinations.map((combo) => combo.id)}
+            cameraMode={cameraMode}
             onAdvance={handleAdvance}
           />
           <div className="scene-hud">
             <span>Current: {currentNode.label}</span>
             <span>{Math.round(progressPercent)}% complete</span>
+            <span>Camera: {cameraMode}</span>
           </div>
         </section>
 
@@ -118,6 +142,22 @@ const App = () => {
             <button onClick={handleAdvance} disabled={!canAdvance} className="primary-btn">
               {isComplete ? "Reached Math" : "Advance One Step"}
             </button>
+            <p className="micro-note">
+              Keyboard shortcut: <strong>Space</strong> or <strong>Right Arrow</strong>
+            </p>
+            <button
+              onClick={() =>
+                setCameraMode((prev) => (prev === "guided" ? "explore" : "guided"))
+              }
+              className="ghost-btn camera-toggle"
+            >
+              {cameraMode === "guided"
+                ? "Switch To Explore Camera"
+                : "Switch To Guided Camera"}
+            </button>
+            <p className="micro-note">
+              Explore mode: drag to orbit, scroll to zoom.
+            </p>
           </section>
 
           <section className="panel-card">

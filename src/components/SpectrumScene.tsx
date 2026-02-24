@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { dictionary } from "@/lib/storytellingGame";
 import type { CombinationRecipe, SpineNode } from "@/types/storytelling";
 
@@ -10,6 +11,7 @@ type SpectrumSceneProps = {
   visitedNodeIds: string[];
   craftedCombinationIds: string[];
   availableCombinationIds: string[];
+  cameraMode: "guided" | "explore";
   onAdvance: () => void;
 };
 
@@ -23,6 +25,7 @@ type SceneRefs = {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
+  controls: OrbitControls;
   raycaster: THREE.Raycaster;
   pointer: THREE.Vector2;
   targetPosition: THREE.Vector3;
@@ -171,12 +174,14 @@ const SpectrumScene = ({
   visitedNodeIds,
   craftedCombinationIds,
   availableCombinationIds,
+  cameraMode,
   onAdvance,
 }: SpectrumSceneProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const refs = useRef<SceneRefs | null>(null);
   const onAdvanceRef = useRef(onAdvance);
   const nextNodeIdRef = useRef<string | null>(nextNodeId);
+  const cameraModeRef = useRef<"guided" | "explore">(cameraMode);
   const safeVisited = useMemo(() => new Set(visitedNodeIds), [visitedNodeIds]);
   const safeCrafted = useMemo(() => new Set(craftedCombinationIds), [craftedCombinationIds]);
   const safeAvailable = useMemo(() => new Set(availableCombinationIds), [availableCombinationIds]);
@@ -188,6 +193,10 @@ const SpectrumScene = ({
   useEffect(() => {
     nextNodeIdRef.current = nextNodeId;
   }, [nextNodeId]);
+
+  useEffect(() => {
+    cameraModeRef.current = cameraMode;
+  }, [cameraMode]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -204,6 +213,16 @@ const SpectrumScene = ({
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.08;
+    controls.enablePan = false;
+    controls.minDistance = 6;
+    controls.maxDistance = 34;
+    controls.minPolarAngle = 0.25;
+    controls.maxPolarAngle = 1.46;
+    controls.enabled = cameraModeRef.current === "explore";
 
     const ambient = new THREE.AmbientLight(0xa9cad3, 0.62);
     scene.add(ambient);
@@ -343,7 +362,7 @@ const SpectrumScene = ({
     onResize();
     window.addEventListener("resize", onResize);
 
-    const onPointerDown = (event: PointerEvent) => {
+    const onSceneClick = (event: MouseEvent) => {
       if (!nextNodeIdRef.current) return;
 
       const rect = renderer.domElement.getBoundingClientRect();
@@ -361,7 +380,7 @@ const SpectrumScene = ({
       }
     };
 
-    renderer.domElement.addEventListener("pointerdown", onPointerDown);
+    renderer.domElement.addEventListener("click", onSceneClick);
 
     const startPosition = nodePositions.get(currentNodeId) ?? new THREE.Vector3();
     traveler.position.copy(startPosition);
@@ -370,6 +389,7 @@ const SpectrumScene = ({
       scene,
       camera,
       renderer,
+      controls,
       raycaster,
       pointer,
       targetPosition: startPosition.clone(),
@@ -381,7 +401,7 @@ const SpectrumScene = ({
       pulseRing,
       frameId: 0,
       cleanupResize: () => window.removeEventListener("resize", onResize),
-      cleanupPointer: () => renderer.domElement.removeEventListener("pointerdown", onPointerDown),
+      cleanupPointer: () => renderer.domElement.removeEventListener("click", onSceneClick),
     };
 
     const clock = new THREE.Clock();
@@ -397,10 +417,17 @@ const SpectrumScene = ({
         material.opacity = 0.6 + Math.sin(elapsed * 4.5) * 0.2;
       }
 
-      const camTarget = stateRef.targetPosition;
-      const desiredCamera = new THREE.Vector3(camTarget.x + 5.3, camTarget.y + 4.6, camTarget.z + 8.4);
-      stateRef.camera.position.lerp(desiredCamera, 0.035);
-      stateRef.camera.lookAt(camTarget);
+      if (cameraModeRef.current === "guided") {
+        stateRef.controls.enabled = false;
+        stateRef.controls.target.lerp(stateRef.targetPosition, 0.15);
+        const camTarget = stateRef.controls.target;
+        const desiredCamera = new THREE.Vector3(camTarget.x + 5.3, camTarget.y + 4.6, camTarget.z + 8.4);
+        stateRef.camera.position.lerp(desiredCamera, 0.035);
+        stateRef.controls.update();
+      } else {
+        stateRef.controls.enabled = true;
+        stateRef.controls.update();
+      }
 
       stateRef.renderer.render(stateRef.scene, stateRef.camera);
       stateRef.frameId = window.requestAnimationFrame(animate);
@@ -414,6 +441,7 @@ const SpectrumScene = ({
       stateRef.cleanupResize();
       stateRef.cleanupPointer();
       disposeScene(stateRef.scene);
+      stateRef.controls.dispose();
       stateRef.renderer.dispose();
       container.removeChild(stateRef.renderer.domElement);
       refs.current = null;
